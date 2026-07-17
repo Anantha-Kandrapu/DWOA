@@ -50,6 +50,18 @@ frozen contracts. Do NOT implement logic here — only structure + data shapes.
 }
 ```
 
+`fixtures/traces.json` — simulated Nexla real-time trace stream (controller's observe input):
+```json
+{
+  "source": "nexla",
+  "traces": [
+    {"loop_id": "run-101", "ts": "T+0",  "observed_cost_usd": 1.84, "loop_ref": "code-fix-agent"},
+    {"loop_id": "run-102", "ts": "T+2s", "observed_cost_usd": 1.91, "loop_ref": "code-fix-agent"},
+    {"loop_id": "run-103", "ts": "T+4s", "observed_cost_usd": 2.05, "loop_ref": "code-fix-agent"}
+  ]
+}
+```
+
 `fixtures/evals.json` — ~6 cases (input → expected substring the loop output must contain):
 ```json
 {
@@ -83,6 +95,23 @@ frozen contracts. Do NOT implement logic here — only structure + data shapes.
  "cases": [ {"id":"e1","status":"pass","ms":120} ],
  "gate": "green"}
 ```
+
+`GET /state` → the autonomous controller's live state (CP6). Drives the whole dashboard:
+```json
+{
+  "running": true,
+  "current_config": "optimized",
+  "last_event": {"ts":"T+4s","action":"shipped","cost_before":1.84,"cost_after":0.22,"gate":"green"},
+  "compile": { "...": "the /compile shape" },
+  "evals":   { "...": "the /evals shape" },
+  "traces":  [ {"loop_id":"run-103","observed_cost_usd":2.05,"via":"nexla"} ],
+  "history": [ {"ts":"T+2s","action":"observed"}, {"ts":"T+4s","action":"shipped"} ]
+}
+```
+
+`POST /force-compile` → runs one controller tick immediately (manual demo moment). Returns `/state`.
+
+`POST /inject-fail` body `{"case":"e3"}` → flips one eval red on next tick (demo auto-revert). Returns `/state`.
 
 `POST /run` (optional stretch) → executes one loop, returns trace. Same step shape as `/compile`.
 

@@ -1,24 +1,22 @@
 # CP3 — FastAPI Glue
 
-**Owner:** backend agent (after CP1 + CP2 land, or same agent that finished CP1).
-**Depends on:** CP1 (`optimizer.compile`), CP2 (`evals.run_evals`, `gate_blocks_ship`).
-**Files you own:** `optiloop/server/main.py`. Do NOT modify optimizer/evals internals — only import them.
+**Owner:** backend agent (after CP1 + CP2 + CP6 land).
+**Depends on:** CP1 (`optimizer.compile`), CP2 (`evals.run_evals`, `gate_blocks_ship`), CP6 (`controller`).
+**Files you own:** `optiloop/server/main.py`. Do NOT modify optimizer/evals/controller internals — only import them.
 
 ## Goal
 Wire the three endpoints from `schemas.md`. Thin controller only.
 
 ## main.py
 - FastAPI app + CORS enabled for `http://localhost:5173` (Vite dev).
-- `POST /compile`:
-  - Load `fixtures/loop.json` (or accept a posted loop body; default to fixture).
-  - Return `optimizer.compile(loop)`.
-- `GET /evals`:
-  - Accept optional `?fail=e3` query to force a red case (demo).
-  - Return `evals.run_evals(fail_ids=...)`.
-- `POST /run` (stretch): return a single loop trace using the optimizer's step output.
-- Add a `GET /health` → `{"ok": true}`.
-- Guarantee endpoint (nice-to-have): `GET /ship-decision` → combines compile + evals and returns
-  `{"ship": bool, "reason": str}` using `gate_blocks_ship`. This is the money-line API.
+- On startup: start the CP6 controller background loop.
+- `GET /state`: return `controller.state()`. **Primary endpoint** — the dashboard polls this (~1–2s).
+- `POST /force-compile`: call `controller.force_compile()`, return `/state`. The on-stage moment.
+- `POST /inject-fail` (body `{"case":"e3"}`): call `controller.inject_fail(...)`, return `/state`. Demo auto-revert.
+- `POST /compile`: load `fixtures/loop.json` (or posted body), return `optimizer.compile(loop)`. (Direct/manual path.)
+- `GET /evals`: optional `?fail=e3`, return `evals.run_evals(fail_ids=...)`.
+- `GET /health` → `{"ok": true}`.
+- `POST /run` (stretch): single loop trace from optimizer step output.
 
 ## Run
 ```
@@ -27,7 +25,9 @@ uvicorn main:app --reload --port 8000
 ```
 
 ## Acceptance
-- `curl localhost:8000/compile` returns the CP0 `/compile` shape.
-- `curl localhost:8000/evals` returns green; `curl 'localhost:8000/evals?fail=e3'` returns red.
+- `curl localhost:8000/state` returns the CP0 `/state` shape and its `history` grows on its own
+  (controller running) with no other requests.
+- `curl -X POST localhost:8000/force-compile` shows a baseline→optimized transition, gate green.
+- `curl -X POST localhost:8000/inject-fail -d '{"case":"e3"}'` → next state shows red gate + reverted.
 - CORS lets the Vite app fetch without errors.
 - Heavily commented. No unit tests.

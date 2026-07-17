@@ -16,9 +16,42 @@ evals — proven by a Buildkite-style eval gate.
 - **Eval engine:** local mock gate by default; real AWS Bedrock AgentCore Evaluations behind an env flag (`USE_AGENTCORE`). Named as the prod path even when stubbed.
 - **No unit tests.** Minimal, heavily commented, prototype-grade.
 
+## Prize tracks we're targeting (cash lives in tracks, general 1st = badge only)
+
+- **Zero.xyz — $2,500 (biggest).** Go deep: the agent's *act* step genuinely runs tools through
+  Zero's no-key layer. Must be load-bearing, not cosmetic.
+- **Pomerium — $1,000 (Most Innovative).** Policy-gated cross-provider routing = a real compilation
+  constraint. This is our innovation angle.
+- **Nexla — $750 + $5k credits.** Nexla ADK feeds real-time agent traces/metrics into the *observe*
+  step. Also fixes our Autonomy score (see below).
+- Akash = technical cascade target (credits track, secondary). Fillmore = skip (recruiting, no fit).
+
+## Judging criteria (each 20%) — build to these
+
+- **Idea** — cross-provider, governance-aware compiler (wedge vs AgentCore).
+- **Technical Implementation** — clean, working, debuggable.
+- **Tool Use** — Zero + Pomerium + Nexla genuinely load-bearing.
+- **Presentation** — 3-min demo; the before/after cost money-shot.
+- **Autonomy — "acts on real-time data without manual intervention."** THIS is our weak axis. The
+  self-running loop (below) is what earns it. Do not skimp here.
+
+## Autonomy loop (self-directing — the theme + the Autonomy 20%)
+
+OptiLoop runs itself: **observe → detect → compile → eval → ship/revert**, no human in the loop.
+
+1. **Observe** — a controller polls **Nexla** for real-time agent traces + cost metrics.
+2. **Detect** — spots a cost spike / new/expensive loop.
+3. **Compile (act)** — auto-runs the optimizer (cascade + compression) via the router, tool calls
+   through **Zero**, routing constrained by **Pomerium**.
+4. **Eval (observe)** — runs the eval gate (mock / AgentCore).
+5. **Self-correct** — if evals pass → ship the cheaper config; if red → auto-revert to the safe one.
+
+Hybrid demo: the loop is running autonomously on its own; a **Force Compile** button lets you trigger
+a dramatic compile on stage. So it scores Autonomy *and* gives you a controllable money-shot.
+
 ## Scope
 
-- **Core (must demo):** model cascading + eval gate + before/after cost cards.
+- **Core (must demo):** autonomous controller loop + model cascading + eval gate + before/after cost cards.
 - **Real-but-simple:** prompt compression (strip system-prompt bloat, dedupe context).
 - **Stretch only:** request coalescing — the "and it also does this" bonus.
 
@@ -57,20 +90,23 @@ The moat = **cross-provider cascade (incl. off-AWS to Akash)** + **policy-gated 
 ```
 optiloop/
   server/
-    main.py          # 3 endpoints (CP3)
-    optimizer.py     # cascade + compression + policy (CP1)
-    router.py        # model choice via Zero pricing + Pomerium policy (CP1)
-    evals.py         # eval gate, pass/fail (CP2)
+    main.py          # endpoints incl. /state, /force-compile (CP3)
+    controller.py    # autonomous observe→compile→eval→ship/revert loop (CP6)
+    nexla.py         # Nexla ADK real-time trace/metric feed (CP6)
+    optimizer.py     # cascade + compression (CP1)
+    router.py        # model choice via pricing table + Pomerium policy + Zero tools (CP1)
+    evals.py         # eval gate, pass/fail, ship-block (CP2)
     requirements.txt
   web/
-    src/App.tsx      # dashboard: cost cards, bars, eval table, loop trace (CP5)
+    src/App.tsx      # dashboard: live loop status, cost cards, bars, eval table, trace (CP5)
     src/theme.css    # neumorphic monochrome system (CP4)
   fixtures/
-    loop.json        # sample agent loop (Cursor-style)   (CP0)
-    evals.json       # ~6 eval cases                        (CP0)
-    pricing.json     # Zero pricing snapshot                (CP0)
-    policy.json      # Pomerium policy                      (CP0)
-  schemas.md         # shared JSON + API contracts          (CP0)
+    loop.json        # sample agent loop (Cursor SDK-style)     (CP0)
+    traces.json      # simulated Nexla real-time trace stream    (CP0)
+    evals.json       # ~6 eval cases                              (CP0)
+    pricing.json     # local model pricing table                  (CP0)
+    policy.json      # Pomerium policy                            (CP0)
+  schemas.md         # shared JSON + API contracts                (CP0)
 ```
 
 ## Checkpoints & parallelism
@@ -104,7 +140,8 @@ and API response so the rest can build in parallel without touching each other's
 ```
 
 - **Parallel wave 1:** CP1, CP2, CP4 (all only need CP0).
-- **CP3** needs CP1 + CP2.
+- **CP6** (autonomous controller + Nexla feed) needs CP1 + CP2. Owns `controller.py`, `nexla.py`.
+- **CP3** needs CP1 + CP2 + CP6 (exposes `/state`, `/force-compile`).
 - **CP5** can start against CP0 contracts immediately (mock fetch), wire to CP3 when ready.
 
 ## Time budget (11:00 → 4:30 submit)
@@ -119,10 +156,15 @@ and API response so the rest can build in parallel without touching each other's
 
 ## Demo flow (on screen)
 
-1. Load sample loop → baseline: model, tokens, **$1.84**, evals passing.
-2. **Compile** → router picks cheaper model (Zero pricing), compression strips bloat, Pomerium blocks the one PII step from downgrading.
-3. Eval gate runs (Buildkite panel) → all green → **$0.22, 100% pass**.
-4. Before/After cost cards + grouped bar chart. Money shot.
+1. Open dashboard → loop is **already running autonomously**: controller polling Nexla, a live feed
+   of incoming agent traces, cost ticking. No manual trigger — this is the Autonomy proof.
+2. A trace with a cost spike arrives → controller auto-fires: baseline **$1.84**.
+3. **Force Compile** (your on-stage moment) → router picks cheaper models (tools via Zero),
+   compression strips bloat, **Pomerium blocks** the PII step from cascading to an external model.
+4. Eval gate runs → all green → controller **auto-ships** the cheaper config → **$0.22, 100% pass**.
+5. Optional: flip one eval red → gate goes red → controller **auto-reverts** to the safe config. Shows
+   self-correction live.
+6. Before/After cost cards + grouped bar chart. Money shot.
 
 ## Risk guards
 

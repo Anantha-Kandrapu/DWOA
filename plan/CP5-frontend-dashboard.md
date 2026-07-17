@@ -5,11 +5,20 @@
 **Files you own:** `optiloop/web/src/App.tsx` (+ small components in `src/`). Uses `theme.css` from CP4.
 
 ## Goal
-The demo screen. Build against a local mock matching CP0's `/compile` + `/evals` shapes, then flip a
-`const API = "http://localhost:8000"` toggle to hit CP3.
+The demo screen. It reflects the **live autonomous controller** — poll `GET /state` every ~1–2s and
+render whatever it returns. Build against a local mock matching CP0's `/state` shape first, then flip
+`const API = "http://localhost:8000"` to hit CP3.
 
-## Layout (3 tabs, neumorphic cards)
-1. **Loop** — render `fixtures/loop.json` steps as trace rows (id, role, model, tokens, PII badge).
+## Live-loop UI (the Autonomy proof — top of the screen, always visible)
+- A **status strip**: "● Controller running" (pulsing dot), current config (baseline|optimized), and a
+  live **Nexla feed** ticker of incoming traces (`loop_id`, cost, `via: nexla`).
+- An **event history** timeline from `state.history` (observed → compiled → shipped / reverted), so
+  judges see it acting on its own with no clicks.
+- **Force Compile** button → `POST /force-compile` (your on-stage moment).
+- **Inject Fail** toggle → `POST /inject-fail` → watch the gate go red and the controller auto-revert.
+
+## Layout (3 tabs, neumorphic cards) — all fed from `state`
+1. **Loop** — render the current loop steps as trace rows (id, role, model, tokens, PII badge).
 2. **Optimize** — the money shot:
    - Two big `.card`s side by side: **Before $1.84** / **After $0.22**, `.hero-number`, savings % between them.
    - Recharts grouped **bar chart**: per-step cost baseline vs optimized (grayscale, vars from theme).
@@ -26,8 +35,10 @@ The demo screen. Build against a local mock matching CP0's `/compile` + `/evals`
 - Near the ship decision: "OptiLoop will never ship a cheaper agent that fails your evals."
 
 ## Data flow
-- On mount: `fetch(API+"/compile")` and `fetch(API+"/evals")`.
-- Keep a `USE_MOCK` flag with inline mock objects (copy from CP0) so the UI works even if backend is down — demo-safe.
+- Poll `fetch(API+"/state")` every ~1–2s (setInterval); render everything from the returned state.
+- Buttons `POST` to `/force-compile` and `/inject-fail`, then let the next poll refresh the view.
+- Keep a `USE_MOCK` flag with an inline mock `state` object (copy from CP0) that animates on a timer,
+  so the UI feels alive even if the backend is down — demo-safe.
 
 ## Acceptance
 - Renders fully from mock with zero backend.
