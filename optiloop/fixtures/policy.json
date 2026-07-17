@@ -1,0 +1,9 @@
+{
+  "rules": [
+    {
+      "effect": "deny",
+      "when": {"touches_pii": true, "target_external": true},
+      "reason": "PII step cannot cascade to external/open model without authorization"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "code-fix-agent",
+  "steps": [
+    {"id": "plan", "role": "planner", "model": "gpt-4o", "prompt_tokens": 2400, "touches_pii": false},
+    {"id": "read", "role": "observer", "model": "gpt-4o", "prompt_tokens": 3100, "touches_pii": true},
+    {"id": "edit", "role": "actor", "model": "gpt-4o", "prompt_tokens": 4200, "touches_pii": false},
+    {"id": "verify", "role": "critic", "model": "gpt-4o", "prompt_tokens": 1800, "touches_pii": false}
+  ]
+}

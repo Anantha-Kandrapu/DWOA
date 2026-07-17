@@ -1,0 +1,8 @@
+{
+  "source": "nexla",
+  "traces": [
+    {"loop_id": "run-101", "ts": "T+0", "observed_cost_usd": 1.84, "loop_ref": "code-fix-agent"},
+    {"loop_id": "run-102", "ts": "T+2s", "observed_cost_usd": 1.91, "loop_ref": "code-fix-agent"},
+    {"loop_id": "run-103", "ts": "T+4s", "observed_cost_usd": 2.05, "loop_ref": "code-fix-agent"}
+  ]
+}
