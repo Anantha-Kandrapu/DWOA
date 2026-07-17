@@ -64,6 +64,54 @@ time, explains every dot, and can replay any previous snapshot without rerunning
 - **Supporting only:** model routing and governance policy.
 - **Stretch only:** cross-run caching after correctness and invalidation rules are proven.
 
+## Parallel execution and integrations
+
+### Now: fast local iterations
+
+- Generate four prompt/tool variants per batch: conservative, prompt-first, tool-first, and balanced.
+- Run candidates concurrently with a bounded local thread pool.
+- Evaluate each candidate independently and append it to the live score graph as soon as the batch completes.
+- Keep tool side effects simulated during optimization; Replay never executes them.
+- Use local execution for the default autonomous loop so background ticks cannot spend cloud credits.
+
+### Nexla: live monitoring
+
+- Use Nexla as the real monitoring and trace layer, not a cosmetic label.
+- Authenticate with a session token obtained from the service key.
+- Read monitoring/resource status through `NEXLA_API_URL`.
+- Publish sanitized iteration telemetry through a dedicated Nexla webhook URL; never send prompt text,
+  tool arguments, API keys, or repository contents.
+- Display Nexla connection state and trace source in the dashboard.
+
+### AkashML: explicit inference
+
+- Use the OpenAI-compatible AkashML API for real candidate inference and measured token usage.
+- Discover available models from `/v1/models` or set `AKASHML_MODEL` explicitly.
+- Do not call AkashML on autonomous background ticks until per-run budget and rate limits exist.
+- Trigger paid inference only through an explicit user action or a bounded experiment batch.
+
+### Akash: later sandbox backend
+
+- Keep local parallel execution as the fast default.
+- Add Akash Console API as the remote sandbox backend for larger batches.
+- Creating a deployment requires an explicit confirmation because it spends credits.
+- Launch flow: create deployment → poll bids → accept a lease → run the batch → close the deployment.
+
+### Environment
+
+```dotenv
+NEXLA=
+NEXLA_API_URL=https://dev-api-express-code.nexla.com/
+NEXLA_MONITORING_URL=https://veda-ai.nexla.io/monitoring/
+NEXLA_WEBHOOK_URL=
+AKASH=
+AKASHML=
+AKASHML_MODEL=
+```
+
+Real values live only in `optiloop/server/.env`; `.env.example` contains placeholders and `.gitignore`
+must continue excluding every real `.env` file.
+
 ## Positioning (the wedge)
 
 Model routing is already widely available. OptiLoop optimizes the parts routers do not:
