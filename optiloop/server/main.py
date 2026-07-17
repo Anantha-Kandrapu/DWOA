@@ -260,7 +260,8 @@ def run_evals(variant="balanced", fail_ids=()):
     failed_ids = set(fail_ids)
     if variant == "prompt-first":
         failed_ids.add("e4")  # A visible regression so the score graph moves.
-    results = [{"id": case["id"], "status": "fail" if case["id"] in failed_ids else "pass", "ms": 80 + index * 16}
+    results = [{"id": case["id"], "name": case.get("name", case["id"]),
+                "status": "fail" if case["id"] in failed_ids else "pass", "ms": 80 + index * 16}
                for index, case in enumerate(cases)]
     failed = sum(item["status"] == "fail" for item in results)
     return {
@@ -289,6 +290,16 @@ nexla_access_token = None
 state_data = {"running": False, "current_config": "baseline", "last_event": None, "compile": None,
               "evals": None, "traces": recent_traces, "history": history, "iterations": iterations,
               "live_events": live_events, "sessions": sessions, "integrations": integration_state}
+if sessions:
+    restored = load_session(sessions[0]["id"])
+    winner = restored["winner"]
+    iterations.extend(restored["iterations"])
+    live_events.extend(restored["events"])
+    last_event = {"ts": winner["ts"], "action": winner["decision"], "variant": winner["variant"],
+                  "score": winner["quality_score"], "gate": winner["gate"], "batch_id": winner["batch_id"]}
+    history.append(last_event)
+    state_data.update({"current_config": "optimized" if winner["decision"] == "shipped" else "baseline",
+                       "last_event": last_event, "compile": winner["compile"], "evals": winner["evals"]})
 
 
 def safe_call(name, fn):
@@ -344,7 +355,7 @@ def probe_integrations():
             models = safe_call("akashml", lambda: request_json(f"{os.environ.get('AKASHML_API_URL', AKASHML_API_URL).rstrip('/')}/models",
                                                                 headers={"Authorization": f"Bearer {key}"}))
             if models and models.get("data"):
-                integration_state["akashml"]["model"] = models["data"][0]["id"]
+                integration_state["akashml"]["model"] = os.environ.get("AKASHML_MODEL") or models["data"][0]["id"]
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(lambda fn: fn(), (nexla_probe, akash_probe, akashml_probe)))
@@ -358,7 +369,7 @@ def publish_nexla(iteration):
     telemetry["changes"] = [{"type": item["type"], "step": item.get("step"), "summary": item["summary"]} for item in iteration["changes"]]
     safe_call("nexla", lambda: request_json(url, method="POST",
                                              headers={"Content-Type": "application/json"},
-                                             body={"source": "optiloop", "iteration": telemetry}, timeout=4))
+                                             body={"source": "dwoa", "iteration": telemetry}, timeout=4))
 
 
 def publish_batch_nexla(batch):
@@ -374,7 +385,7 @@ def publish_nexla_event(event):
         url,
         method="POST",
         headers={"Content-Type": "application/json"},
-        body={"source": "optiloop", "event": event},
+        body={"source": "dwoa", "event": event},
         timeout=4,
     ))
 
@@ -485,22 +496,28 @@ def execute_variant(task):
     }
 
 
-def tick(force=False):
+def tick(force=False, iteration_count=4):
     global fail_case
+    if iteration_count < 4 or iteration_count % len(VARIANTS):
+        raise ValueError("iteration_count must be a positive multiple of four")
     with lock:
         trace = {**next(traces), "via": "nexla" if integration_state["nexla"]["connected"] else "fixture"}
         session_id = f"session-{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(timezone.utc).isoformat()
         recent_traces.append(trace)
         del recent_traces[:-12]
-        batch_id = f"batch-{int(time.time() * 1000)}"
+        batch_root = f"batch-{int(time.time() * 1000)}"
         urls = sandbox_urls()
         if not urls:
             raise RuntimeError("No sandbox configured; set SANDBOX_URLS")
         start_sequence = len(iterations) + 1
-        tasks = [(spec, batch_id, start_sequence + index, urls[index % len(urls)])
-                 for index, spec in enumerate(VARIANTS)]
-        with ThreadPoolExecutor(max_workers=len(VARIANTS)) as pool:
+        tasks = [
+            (VARIANTS[index % len(VARIANTS)], f"{batch_root}-r{index // len(VARIANTS) + 1}",
+             start_sequence + index, urls[index % len(urls)])
+            for index in range(iteration_count)
+        ]
+        batch_ids = {task[1] for task in tasks}
+        with ThreadPoolExecutor(max_workers=iteration_count) as pool:
             batch = list(pool.map(execute_variant, tasks))
 
         passing = [item for item in batch if item["gate"] == "green"]
@@ -510,7 +527,7 @@ def tick(force=False):
         iterations.extend(batch)
         del iterations[:-80]
         event = {"ts": winner["ts"], "action": winner["decision"], "variant": winner["variant"],
-                 "score": winner["quality_score"], "gate": winner["gate"], "batch_id": batch_id}
+                 "score": winner["quality_score"], "gate": winner["gate"], "batch_id": winner["batch_id"]}
         history.append(event)
         del history[:-20]
         session = {
@@ -523,7 +540,7 @@ def tick(force=False):
             "baseline": winner["compile"]["baseline"],
             "final": winner["compile"]["optimized"] if passing else winner["compile"]["baseline"],
             "iterations": batch,
-            "events": [item for item in live_events if item["batch_id"] == batch_id],
+            "events": [item for item in live_events if item["batch_id"] in batch_ids],
             "winner": winner,
         }
         save_session(session)
@@ -544,6 +561,8 @@ def start_controller():
         return
     state_data["running"] = True
     threading.Thread(target=probe_integrations, daemon=True).start()
+    if os.environ.get("AUTO_RUN", "false").lower() != "true":
+        return
 
     def run():
         while state_data["running"]:
@@ -650,6 +669,14 @@ def get_session(session_id: str):
 @app.post("/force-compile")
 def force_compile():
     return tick(force=True)
+
+
+@app.post("/run-iterations")
+def run_iterations(body: dict = Body(default={})):
+    count = int(body.get("count", 20))
+    if count != 20:
+        raise HTTPException(400, "The demo session runs exactly 20 iterations")
+    return tick(force=True, iteration_count=count)
 
 
 @app.post("/inject-fail")

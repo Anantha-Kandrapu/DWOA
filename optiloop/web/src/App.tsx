@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
+const API = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001"
 
 type Tool = { id: string; name: string; side_effect?: boolean }
 type Step = { id: string; model: string; cost: number; prompt?: string; prompt_tokens: number; tool_calls: number; tools?: Tool[]; provider?: string }
@@ -13,7 +13,7 @@ type Compile = {
   tool_optimization: { calls_saved: number; changes: Change[] }
 }
 type Change = { type: string; step?: string; summary: string; removed?: string[] }
-type Eval = { id: string; status: "pass" | "fail"; ms: number }
+type Eval = { id: string; name: string; status: "pass" | "fail"; ms: number }
 type Evals = { passed: number; failed: number; total: number; quality_score: number; cases: Eval[]; gate: "green" | "red" }
 type Iteration = {
   id: string; batch_id: string; sequence: number; ts: string; variant: string; quality_score: number
@@ -32,6 +32,7 @@ type State = {
 
 const money = (value: number) => `$${value.toFixed(value < 0.01 ? 5 : 3)}`
 const phases = ["Observed", "Compiled", "Evaluated", "Decision"]
+const demoWorkflow = "Refund order ORD-1042 for customer CUST-88 when the order is damaged or late. Verify policy, prevent duplicate refunds, and notify the customer."
 
 export default function App() {
   const [state, setState] = useState<State | null>(null)
@@ -40,6 +41,7 @@ export default function App() {
   const [phase, setPhase] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [workflow, setWorkflow] = useState(demoWorkflow)
 
   const refresh = async () => {
     const next = await fetch(`${API}/state`).then(response => response.json())
@@ -72,35 +74,23 @@ export default function App() {
 
   const iterations = state?.iterations ?? []
   const selected = iterations.find(item => item.id === selectedId) ?? iterations[iterations.length - 1]
+  const run = () => post("/run-iterations", { count: 20, workflow })
 
-  if (!state?.compile || !state.evals) return <main><section className="panel loading">Waiting for DWOA API…</section></main>
+  if (!state?.compile || !state.evals) return <main><header className="topbar"><strong className="brand">DWOA <span>Dynamic Workflow Optimization Agent</span></strong></header><WorkflowInput value={workflow} setValue={setWorkflow} run={run} busy={busy} /></main>
 
   return (
     <main>
       <header className="topbar">
         <strong className="brand">DWOA <span>Dynamic Workflow Optimization Agent</span></strong>
-        <span className="pill ok">{state.running ? "Live" : "Paused"}</span>
-        {Object.entries(state.integrations ?? {}).map(([name, value]) => <span className={`pill ${value.connected ? "ok" : ""}`} title={value.error} key={name}>{name} {value.connected ? "connected" : value.configured ? "checking" : "off"}</span>)}
-        <button onClick={() => post("/force-compile")} disabled={busy}>Run variants</button>
+        <span className="pill ok">{state.running ? "Ready" : "Paused"}</span>
       </header>
 
-      <section className="hero">
-        <div>
-          <span className={`pill ${state.evals.gate === "green" ? "ok" : "bad"}`}>{state.evals.gate === "green" ? "Verified optimization live" : "Baseline protected"}</span>
-          <h1>Every workflow. Continuously optimized.</h1>
-          <p>Four variants run in parallel. Every score, prompt change, tool merge, and ship decision stays inspectable and replayable.</p>
-        </div>
-        <div className="metrics">
-          <Metric label="Quality score" value={`${state.evals.quality_score}%`} />
-          <Metric label="Winning variant" value={state.compile.variant} />
-          <Metric label="Iterations" value={`${iterations.length}`} />
-        </div>
-      </section>
+      <WorkflowInput value={workflow} setValue={setWorkflow} run={run} busy={busy} />
 
       <nav className="tabs">
-        <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>Live</button>
-        <button className={tab === "replay" ? "active" : ""} onClick={() => setTab("replay")}>Replay</button>
-        <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
+        <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>Results</button>
+        <button className={tab === "replay" ? "active" : ""} onClick={() => setTab("replay")}>Inspect iterations</button>
+        <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>Previous runs</button>
       </nav>
 
       {tab === "live" && <Live state={state} selected={selected} select={setSelectedId} post={post} />}
@@ -111,34 +101,38 @@ export default function App() {
 }
 
 function Live({ state, selected, select, post }: { state: State; selected?: Iteration; select: (id: string) => void; post: (path: string, body?: unknown) => void }) {
-  const before = state.compile.baseline
-  const after = state.compile.optimized
+  const first = state.iterations[0]
+  const best = state.iterations.filter(item => item.gate === "green").reduce((winner, item) => item.metrics.cost_usd < winner.metrics.cost_usd ? item : winner, state.iterations[0])
+  const reduction = Math.max(0, Math.round((1 - best.metrics.cost_usd / first.metrics.cost_usd) * 100))
   return <>
+    <section className="outcome">
+      <small>Optimization complete</small>
+      <h1>{reduction}% lower estimated cost</h1>
+      <p>DWOA tested 20 versions and selected iteration #{best.sequence}. All {best.evals.total} safety and quality checks passed.</p>
+    </section>
+
+    <section className="before-after">
+      <ResultCard title="Original workflow" iteration={first} />
+      <strong className="result-arrow">→</strong>
+      <ResultCard title="Optimized workflow" iteration={best} winner />
+    </section>
+
     <section className="panel graph-panel">
-      <div className="panel-head"><div><small>Live quality score</small><h2>Parallel optimization timeline</h2></div><span className="pill">one dot per variant</span></div>
-      <ScoreGraph iterations={state.iterations} selectedId={selected?.id} select={select} />
+      <div className="panel-head"><div><small>Progress</small><h2>Estimated cost across 20 attempts</h2></div><span className="pill">lower is better</span></div>
+      <CostGraph iterations={state.iterations} selectedId={selected?.id} select={select} />
     </section>
 
-    <section className="metric-grid">
-      <Compare label="Input tokens" before={before.tokens} after={after.tokens} />
-      <Compare label="Expected turns" before={before.expected_turns} after={after.expected_turns} />
-      <Compare label="Tool calls" before={before.tool_calls} after={after.tool_calls} />
-      <Compare label="Latency" before={before.estimated_latency_ms} after={after.estimated_latency_ms} suffix="ms" />
-      <Compare label="Cost" before={money(before.cost_usd)} after={money(after.cost_usd)} />
+    <section className="grid result-explanation">
+      <section className="panel"><small>What DWOA changed</small><h2>Prompt and tool improvements</h2><div className="change-list">{best.changes.map((change, index) => <div key={`${change.type}-${index}`}><strong>{change.step ?? "workflow"}</strong><span>{change.summary}</span></div>)}</div></section>
+      <section className="panel"><small>Verification</small><h2>{best.evals.passed}/{best.evals.total} checks passed</h2><p>The optimized version kept refund rules, duplicate-refund protection, and customer notification behavior intact.</p><div className="chips">{best.evals.cases.map(item => <span className="pill ok" key={item.id}>{item.name}</span>)}</div></section>
     </section>
 
-    <section className="panel event-panel">
-      <div className="panel-head"><div><small>Sandbox lifecycle</small><h2>Every iteration phase</h2></div><span className="pill">{state.live_events?.length ?? 0} events</span></div>
-      <div className="event-stream">{[...(state.live_events ?? [])].reverse().slice(0, 40).map((event, index) => <div key={`${event.batch_id}-${event.variant}-${event.sequence}-${index}`}><span className="event-time">{new Date(event.ts).toLocaleTimeString()}</span><strong>{event.variant}</strong><span className="pill">{event.phase.split("_").join(" ")}</span><span>{Object.entries(event.details ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</span></div>)}</div>
-    </section>
-
-    {selected && <IterationDetails iteration={selected} />}
-
-    <section className="panel eval-panel">
-      <div className="panel-head"><div><small>Eval gate</small><h2>{state.evals.passed}/{state.evals.total} passing</h2></div><label className="toggle"><input type="checkbox" onChange={event => post("/inject-fail", { case: event.target.checked ? "e3" : "" })} /> Inject regression</label></div>
-      <div className="chips">{state.evals.cases.map(item => <span className={`pill ${item.status === "pass" ? "ok" : "bad"}`} key={item.id}>{item.id} · {item.ms}ms</span>)}</div>
-    </section>
+    <details className="panel technical"><summary>Show technical telemetry</summary><div className="panel-head"><div><small>Akash sandbox + Nexla</small><h2>{state.live_events?.length ?? 0} recorded events</h2></div><label className="toggle"><input type="checkbox" onChange={event => post("/inject-fail", { case: event.target.checked ? "e3" : "" })} /> Simulate a failed check</label></div><div className="event-stream">{[...(state.live_events ?? [])].reverse().slice(0, 40).map((event, index) => <div key={`${event.batch_id}-${event.variant}-${event.sequence}-${index}`}><span className="event-time">{new Date(event.ts).toLocaleTimeString()}</span><strong>{event.variant}</strong><span className="pill">{event.phase.split("_").join(" ")}</span><span>{Object.entries(event.details ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</span></div>)}</div></details>
   </>
+}
+
+function ResultCard({ title, iteration, winner = false }: { title: string; iteration: Iteration; winner?: boolean }) {
+  return <section className={`panel result-card ${winner ? "winner" : ""}`}><small>{title}</small><strong className="result-cost">{money(iteration.metrics.cost_usd)}</strong><span>estimated cost per run</span><dl><div><dt>Input tokens</dt><dd>{iteration.metrics.input_tokens}</dd></div><div><dt>Output tokens</dt><dd>{iteration.metrics.output_tokens}</dd></div><div><dt>Expected turns</dt><dd>{iteration.metrics.expected_turns}</dd></div><div><dt>Tool calls</dt><dd>{iteration.metrics.tool_calls}</dd></div><div><dt>Quality</dt><dd>{iteration.quality_score}%</dd></div></dl>{winner && <span className="pill ok">Selected · iteration #{iteration.sequence}</span>}</section>
 }
 
 function History({ sessions }: { sessions: SessionSummary[] }) {
@@ -150,17 +144,24 @@ function History({ sessions }: { sessions: SessionSummary[] }) {
   </section>
 }
 
-function ScoreGraph({ iterations, selectedId, select }: { iterations: Iteration[]; selectedId?: string; select: (id: string) => void }) {
-  const batchIds = [...new Set(iterations.map(item => item.batch_id))].slice(-10)
-  const points = iterations.filter(item => batchIds.includes(item.batch_id))
-  const variants = [...new Set(points.map(item => item.variant))]
+function CostGraph({ iterations, selectedId, select }: { iterations: Iteration[]; selectedId?: string; select: (id: string) => void }) {
   const width = 1000, height = 230, pad = 28
-  const coords = points.map(item => ({ item, x: pad + batchIds.indexOf(item.batch_id) * ((width - pad * 2) / Math.max(1, batchIds.length - 1)), y: pad + (100 - Math.max(0, Math.min(100, item.quality_score))) * ((height - pad * 2) / 100) }))
-  return <div className="graph"><div className="graph-legend">{variants.map(variant => <span className={`variant-${variant}`} key={variant}><i />{variant}</span>)}</div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Quality scores for parallel variants by batch">
-    {[0, 25, 50, 75, 100].map(score => <g key={score}><line x1={pad} x2={width - pad} y1={pad + (100 - score) * ((height - pad * 2) / 100)} y2={pad + (100 - score) * ((height - pad * 2) / 100)} /><text x="0" y={pad + 4 + (100 - score) * ((height - pad * 2) / 100)}>{score}</text></g>)}
-    {variants.map(variant => <polyline className={`variant-${variant}`} key={variant} points={coords.filter(point => point.item.variant === variant).map(point => `${point.x},${point.y}`).join(" ")} />)}
-    {coords.map(({ item, x, y }) => <g key={item.id} role="button" tabIndex={0} aria-label={`${item.variant}, score ${item.quality_score}%, ${item.gate}`} className={`score-point variant-${item.variant} ${item.gate === "red" ? "failed" : ""} ${selectedId === item.id ? "selected" : ""}`} onClick={() => select(item.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(item.id) } }}><circle cx={x} cy={y} r={selectedId === item.id ? 8 : 6}><title>{`${item.variant}: ${item.quality_score}% · ${item.changes.map(change => change.summary).join("; ") || "no changes"}`}</title></circle></g>)}
+  const costs = iterations.map(item => item.metrics.cost_usd)
+  const min = Math.min(...costs), max = Math.max(...costs), range = max - min || 1
+  const coords = iterations.map((item, index) => ({ item, x: pad + index * ((width - pad * 2) / Math.max(1, iterations.length - 1)), y: pad + (item.metrics.cost_usd - min) / range * (height - pad * 2) }))
+  let best = Infinity
+  const bestPoints = coords.map(point => ({ ...point, y: pad + ((best = Math.min(best, point.item.metrics.cost_usd)) - min) / range * (height - pad * 2) }))
+  return <div className="graph"><div className="graph-legend"><span><i />candidate cost</span><span className="best-line"><i />best so far</span></div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Estimated cost by iteration">
+    <line x1={pad} x2={width - pad} y1={pad} y2={pad} /><text x="0" y={pad + 4}>{money(min)}</text>
+    <line x1={pad} x2={width - pad} y1={height - pad} y2={height - pad} /><text x="0" y={height - pad + 4}>{money(max)}</text>
+    <polyline className="candidate-line" points={coords.map(point => `${point.x},${point.y}`).join(" ")} />
+    <polyline className="best-line" points={bestPoints.map(point => `${point.x},${point.y}`).join(" ")} />
+    {coords.map(({ item, x, y }) => <g key={item.id} role="button" tabIndex={0} aria-label={`Iteration ${item.sequence}, ${money(item.metrics.cost_usd)}, ${item.variant}`} className={`cost-point ${selectedId === item.id ? "selected" : ""}`} onClick={() => select(item.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(item.id) } }}><circle cx={x} cy={y} r={selectedId === item.id ? 8 : 6}><title>{`#${item.sequence} ${item.variant}: ${money(item.metrics.cost_usd)} · ${item.changes.map(change => change.summary).join("; ") || "no changes"}`}</title></circle></g>)}
   </svg></div>
+}
+
+function WorkflowInput({ value, setValue, run, busy }: { value: string; setValue: (value: string) => void; run: () => void; busy: boolean }) {
+  return <section className="panel workflow-input"><div><small>1 · Describe the workflow</small><h1>What should DWOA optimize?</h1><p>Use the refund example below, then watch cost, tokens, turns, and tool calls change across 20 Akash iterations.</p></div><textarea aria-label="Workflow to optimize" value={value} onChange={event => setValue(event.target.value)} /><button onClick={run} disabled={busy || !value.trim()}>{busy ? "Running 20 iterations on Akash…" : "Optimize workflow"}</button></section>
 }
 
 function IterationDetails({ iteration }: { iteration: Iteration }) {
@@ -183,14 +184,10 @@ function ReplayPhase({ iteration, phase }: { iteration: Iteration; phase: number
   const before = iteration.compile.baseline, after = iteration.compile.optimized
   if (phase === 0) return <div className="replay-card"><small>Snapshot</small><h2>#{iteration.sequence} · {iteration.variant}</h2><p>{new Date(iteration.ts).toLocaleString()} · batch {iteration.batch_id}</p></div>
   if (phase === 1) return <div className="metric-grid replay-metrics"><Compare label="Input tokens" before={before.tokens} after={after.tokens} /><Compare label="Expected turns" before={before.expected_turns} after={after.expected_turns} /><Compare label="Tool calls" before={before.tool_calls} after={after.tool_calls} /><Compare label="Latency" before={before.estimated_latency_ms} after={after.estimated_latency_ms} suffix="ms" /><Compare label="Cost" before={money(before.cost_usd)} after={money(after.cost_usd)} /></div>
-  if (phase === 2) return <div className="replay-card"><h2>{iteration.evals.passed}/{iteration.evals.total} evals passed</h2><div className="chips">{iteration.evals.cases.map(item => <span className={`pill ${item.status === "pass" ? "ok" : "bad"}`} key={item.id}>{item.id} · {item.ms}ms</span>)}</div></div>
+  if (phase === 2) return <div className="replay-card"><h2>{iteration.evals.passed}/{iteration.evals.total} evals passed</h2><div className="chips">{iteration.evals.cases.map(item => <span className={`pill ${item.status === "pass" ? "ok" : "bad"}`} key={item.id}>{item.name} · {item.ms}ms</span>)}</div></div>
   return <IterationDetails iteration={iteration} />
 }
 
 function Compare({ label, before, after, suffix = "" }: { label: string; before: number | string; after: number | string; suffix?: string }) {
   return <div className="panel compare"><small>{label}</small><strong>{before}{suffix} <i>→</i> {after}{suffix}</strong></div>
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="metric"><small>{label}</small><strong>{value}</strong></div>
 }

@@ -1,48 +1,54 @@
 {
-  "name": "code-fix-agent",
+  "name": "ecommerce-refund-agent",
   "steps": [
     {
-      "id": "plan",
+      "id": "intake",
       "role": "planner",
       "model": "zai-org/GLM-5.2",
       "touches_pii": false,
-      "prompt": "Follow repository instructions.\nFix the reported parser bug.\nFollow repository instructions.\nOptional context: explore unrelated refactors.",
+      "prompt": "Resolve the customer's order issue.\nFollow the refund policy.\nResolve the customer's order issue.\nOptional context: include unrelated purchase history.",
       "required_context": {
-        "target_file": "parser.py",
-        "success_criteria": "focused parser tests pass"
+        "order_id": "ORD-1042",
+        "customer_id": "CUST-88"
       },
       "tools": []
     },
     {
-      "id": "read",
+      "id": "lookup",
       "role": "observer",
       "model": "zai-org/GLM-5.2",
       "touches_pii": true,
-      "prompt": "Read only the files needed for the parser bug.\nPreserve user changes.\nRead only the files needed for the parser bug.",
+      "prompt": "Fetch only the customer and order records needed for this request.\nPreserve customer privacy.\nFetch only the customer and order records needed for this request.",
       "tools": [
-        {"id": "read-1", "name": "read_file", "args": {"path": "parser.py"}, "side_effect": false},
-        {"id": "read-2", "name": "read_file", "args": {"path": "parser.py"}, "side_effect": false}
+        {"id": "customer-1", "name": "get_customer", "args": {"customer_id": "CUST-88"}, "side_effect": false},
+        {"id": "customer-2", "name": "get_customer", "args": {"customer_id": "CUST-88"}, "side_effect": false},
+        {"id": "order-1", "name": "get_order", "args": {"order_id": "ORD-1042"}, "side_effect": false},
+        {"id": "order-2", "name": "get_order", "args": {"order_id": "ORD-1042"}, "side_effect": false}
       ]
     },
     {
-      "id": "edit",
-      "role": "actor",
-      "model": "zai-org/GLM-5.2",
-      "touches_pii": false,
-      "prompt": "Make the smallest correct edit.\nDo not modify unrelated files.\nMake the smallest correct edit.",
-      "tools": [
-        {"id": "write-1", "name": "write_file", "args": {"path": "parser.py"}, "side_effect": true}
-      ]
-    },
-    {
-      "id": "verify",
+      "id": "policy",
       "role": "critic",
       "model": "zai-org/GLM-5.2",
       "touches_pii": false,
-      "prompt": "Run the focused regression check.\nReport the result clearly.\nRun the focused regression check.",
+      "prompt": "Decide refund eligibility from the order status and policy.\nDo not guess policy rules.\nDecide refund eligibility from the order status and policy.",
+      "required_context": {
+        "refund_policy": "refund only if damaged or undelivered after the promised date"
+      },
       "tools": [
-        {"id": "test-1", "name": "run_tests", "args": {"target": "parser"}, "side_effect": false},
-        {"id": "test-2", "name": "run_tests", "args": {"target": "parser"}, "side_effect": false}
+        {"id": "policy-1", "name": "get_refund_policy", "args": {"region": "US"}, "side_effect": false},
+        {"id": "policy-2", "name": "get_refund_policy", "args": {"region": "US"}, "side_effect": false}
+      ]
+    },
+    {
+      "id": "act",
+      "role": "actor",
+      "model": "zai-org/GLM-5.2",
+      "touches_pii": false,
+      "prompt": "Issue a refund only when the policy decision is eligible.\nNotify the customer with the decision.\nIssue a refund only when the policy decision is eligible.",
+      "tools": [
+        {"id": "refund-1", "name": "issue_refund", "args": {"order_id": "ORD-1042"}, "side_effect": true},
+        {"id": "notify-1", "name": "notify_customer", "args": {"customer_id": "CUST-88"}, "side_effect": true}
       ]
     }
   ]
