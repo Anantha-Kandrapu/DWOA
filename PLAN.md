@@ -143,16 +143,21 @@ and API response so the rest can build in parallel without touching each other's
 - **CP6** (autonomous controller + Nexla feed) needs CP1 + CP2. Owns `controller.py`, `nexla.py`.
 - **CP3** needs CP1 + CP2 + CP6 (exposes `/state`, `/force-compile`).
 - **CP5** can start against CP0 contracts immediately (mock fetch), wire to CP3 when ready.
+- **CP7** (integration + verification) needs everything landed — the highest-risk step; own it.
+- **CP8** (README + 3-min demo script + public repo) can draft in parallel, finalize after CP7.
+  Mandatory to submit; it's the Presentation 20%.
 
 ## Time budget (11:00 → 4:30 submit)
 
 - 11:00–11:20 CP0
-- 11:20–1:00 CP1 / CP2 / CP4 in parallel
+- 11:20–1:00 CP1 / CP2 / CP4 in parallel; CP8 (README/script) drafting starts
 - 1:00–1:30 lunch
-- 1:30–2:15 CP3 + sponsor hooks
-- 1:30–3:15 CP5 (overlaps)
-- 3:15–4:00 integration, real cost numbers, fixture fallbacks
-- 4:00–4:30 demo polish + submit
+- 1:30–2:15 CP6 (controller + Nexla)
+- 2:15–2:45 CP3 (API glue, starts controller)
+- 1:30–3:15 CP5 (overlaps, wire to /state)
+- 3:15–4:00 CP7 integration + verification (record known-good demo path)
+- 4:00–4:20 CP8 finalize: record 3-min demo, README, push repo public
+- 4:20–4:30 Devpost submission (repo URL + video + fields)
 
 ## Demo flow (on screen)
 
