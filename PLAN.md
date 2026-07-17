@@ -9,14 +9,31 @@ infrastructure, not the product.
 ## Locked decisions
 
 - **Frontend:** single-file Vite React (`react-ts`), plain `fetch` + `useState`. No TanStack, no router, no query lib.
-- **Charts:** native CSS bars and counters; no chart dependency is required.
-- **Design:** neumorphic, monochrome. Base `#e0e0e0`, dual light/dark soft shadows. Only "accent" = near-black for the hero cost number + passing state. Pass = outset chip + check glyph; fail = inset/pressed chip + cross glyph.
-- **Backend:** FastAPI, ~200 lines. Endpoints: `POST /compile`, `GET /evals`, `POST /run`.
-- **Loop execution:** deterministic local fixtures first. External integrations must be labeled as
-  fixture-backed until verified live.
+- **Charts:** native SVG/CSS; no chart dependency.
+- **Design:** professional black-and-white internal operations UI with square controls, compact
+  telemetry, and no decorative color system.
+- **Backend:** FastAPI leader plus authenticated FastAPI sandbox workers.
+- **Loop execution:** local leader dispatches every candidate to sandbox workers; it never executes
+  candidates or evals itself.
 - **Eval engine:** local deterministic gate only. No live evaluator required.
 - **Verification:** one small deterministic end-to-end check for prompt preservation, tool safety,
   and eval-gated rollback.
+
+## Live implementation status — July 17, 2026
+
+- **Akash:** deployment `1784328663674` is active with one ready worker lease. The local leader's
+  `SANDBOX_URLS` points to its HTTPS ingress, and a full four-variant batch completed there with
+  32 lifecycle events.
+- **Nexla:** webhook source `DWOA Iteration Telemetry` (`125803`) is active. Its Nexset/dataset is
+  `435654`; both a test record and live iteration telemetry were accepted.
+- **AkashML:** connected to `zai-org/GLM-5.2`; the model supports tools, reasoning, and structured
+  outputs. Model routing remains secondary to prompt and tool optimization.
+- **Dashboard:** local at `http://127.0.0.1:5173`; Live, Replay, and durable History views are working.
+- **Secrets:** webhook URLs, API keys, sandbox token, Akash deployment ID, and worker URL live only
+  in ignored `optiloop/server/.env`.
+- **Current deployment image:** the Akash worker uses a 24-hour public registry image for the demo.
+  Before relying on restarts after that window, publish the same pinned image to a permanent public
+  registry and update the active SDL.
 
 ## Prize tracks we're targeting (cash lives in tracks, general 1st = badge only)
 
@@ -119,8 +136,12 @@ NEXLA_API_URL=https://dev-api-express-code.nexla.com/
 NEXLA_MONITORING_URL=https://veda-ai.nexla.io/monitoring/
 NEXLA_WEBHOOK_URL=
 AKASH=
+AKASH_DSEQ=
 AKASHML=
 AKASHML_MODEL=
+SANDBOX_URLS=
+SANDBOX_TOKEN=
+WORKER_MODE=false
 ```
 
 Real values live only in `optiloop/server/.env`; `.env.example` contains placeholders and `.gitignore`
@@ -139,31 +160,29 @@ Routing, provider choice, and policy enforcement support that compiler.
 
 - **Zero.xyz = optimized tool execution layer.** DWOA compares the original and optimized tool
   plans; retained calls execute through Zero. The demo must show fewer calls, not merely a Zero label.
-- **Akash = optional cheap model target.** Useful after prompt and tool optimization, but not the
-  product claim.
+- **Akash = live sandbox execution layer.** Every candidate optimization and eval runs in the
+  deployed worker; the leader remains local.
 - **Local eval gate = correctness proof.** Fixture-backed evals decide ship/revert with no cloud credits.
 - **Pomerium = compilation constraint.** Policy blocks PII-touching steps from cascading to an
   external/open model unless authorized. Implement policy logic locally (`policy.json`); layer real
   Pomerium only if time allows.
 - **Cursor = input format (bonus).** A Cursor-style coding-agent trace is one supported use case.
-- **Nexla = optional trace source.** Use only if a real feed is verified; otherwise label fixtures.
+- **Nexla = live telemetry source.** Every sanitized lifecycle event and iteration result is sent to
+  the verified webhook source.
 - **Fillmore = skip.** It does not fit the product.
 
 ## Repo layout
 
 ```
 optiloop/
+  Dockerfile.worker  # Akash/local sandbox worker image
   server/
-    main.py          # endpoints incl. /state, /force-compile (CP3)
-    controller.py    # autonomous observe→compile→eval→ship/revert loop (CP6)
-    trace_feed.py    # fixture-backed or verified live trace input (CP6)
-    optimizer.py     # prompt + tool-plan optimization (CP1)
-    router.py        # supporting model choice + policy constraints (CP1)
-    evals.py         # eval gate, pass/fail, ship-block (CP2)
+    main.py          # leader, worker, optimizer, evals, integrations, and API
+    optiloop.db      # ignored SQLite session history
     requirements.txt
   web/
-    src/App.tsx      # dashboard: live loop status, cost cards, bars, eval table, trace (CP5)
-    src/theme.css    # neumorphic monochrome system (CP4)
+    src/App.tsx      # Live, Replay, and History dashboard
+    src/theme.css    # black-and-white internal operations UI
   fixtures/
     loop.json        # sample agent loop (Cursor SDK-style)     (CP0)
     traces.json      # deterministic agent trace stream           (CP0)
