@@ -1,10 +1,10 @@
 {
   "cases": [
-    {"id": "e1", "input": "fix null deref in parser.py", "expect": "null check"},
-    {"id": "e2", "input": "add retry to fetch()", "expect": "retry"},
-    {"id": "e3", "input": "rename var foo to userId", "expect": "userId"},
-    {"id": "e4", "input": "handle empty list case", "expect": "empty"},
-    {"id": "e5", "input": "add type hints to run()", "expect": "def run"},
-    {"id": "e6", "input": "guard divide by zero", "expect": "zero"}
+    {"id": "e1", "name": "Damaged order is refundable", "input": "damaged", "expect": "approve"},
+    {"id": "e2", "name": "Late undelivered order is refundable", "input": "late-undelivered", "expect": "approve"},
+    {"id": "e3", "name": "Delivered order is not refundable", "input": "delivered", "expect": "deny"},
+    {"id": "e4", "name": "Refund uses the correct order", "input": "ORD-1042", "expect": "ORD-1042"},
+    {"id": "e5", "name": "Refund executes at most once", "input": "eligible", "expect": "one-refund"},
+    {"id": "e6", "name": "Customer notification is preserved", "input": "decision", "expect": "notified"}
   ]
 }
