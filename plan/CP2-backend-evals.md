@@ -9,12 +9,9 @@ Run the eval cases in `fixtures/evals.json` against the (mock) optimized loop an
 `GET /evals` response from `schemas.md`. This is the correctness gate that makes OptiLoop a
 *compiler*, not just a cost cutter.
 
-## Eval engine: mock default, AgentCore behind a flag
-- Default: local `mock_run` gate (below). Instant, demo-safe, no AWS account.
-- If `os.environ.get("USE_AGENTCORE")`: call AWS Bedrock AgentCore Evaluations instead (Ground Truth
-  = each case's `expect`). Wrap in try/except → on ANY failure, fall back to the mock silently.
-- In the response, include `"engine": "agentcore" | "mock"` so the UI can show "AWS Bedrock
-  AgentCore" as the prod path even when running the mock. Never let a live AWS call break the demo.
+## Eval engine: local deterministic gate
+- Local `mock_run` gate (below). Instant and demo-safe.
+- In the response, include `"engine": "local"`.
 
 ## evals.py
 - `mock_run(case)`: deterministic fake loop execution. Given `case.input`, produce an output string

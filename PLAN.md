@@ -1,10 +1,10 @@
 # OptiLoop — Build Plan
 
-**A correctness-preserving compiler for agent loops.** Ingests an agent loop, optimizes it
-(cheaper model cascade + prompt compression), and refuses to ship any version that fails your
-evals — proven by a Buildkite-style eval gate.
+**A correctness-preserving compiler for agent loops.** Ingests an agent loop, optimizes its prompts
+and tool usage, and refuses to ship any version that fails your evals. Model routing is supporting
+infrastructure, not the product.
 
-> "OptiLoop is a correctness-preserving optimizer — it will never ship a cheaper agent that fails your evals."
+> "OptiLoop removes wasted prompt tokens and tool calls, then proves the optimized agent still works."
 
 ## Locked decisions
 
@@ -12,23 +12,23 @@ evals — proven by a Buildkite-style eval gate.
 - **Charts:** Recharts, styled grayscale.
 - **Design:** neumorphic, monochrome. Base `#e0e0e0`, dual light/dark soft shadows. Only "accent" = near-black for the hero cost number + passing state. Pass = outset chip + check glyph; fail = inset/pressed chip + cross glyph.
 - **Backend:** FastAPI, ~200 lines. Endpoints: `POST /compile`, `GET /evals`, `POST /run`.
-- **LLM calls:** MOCKED via fixtures with deterministic outputs (demo-safe). Every external call (LLM, Zero, AgentCore) has a local fixture fallback so the live demo cannot hard-fail.
-- **Eval engine:** local mock gate by default; real AWS Bedrock AgentCore Evaluations behind an env flag (`USE_AGENTCORE`). Named as the prod path even when stubbed.
+- **LLM calls:** MOCKED via fixtures with deterministic outputs (demo-safe). External platform labels are fixture-backed so the live demo cannot hard-fail.
+- **Eval engine:** local deterministic gate only. No live evaluator required.
 - **No unit tests.** Minimal, heavily commented, prototype-grade.
 
 ## Prize tracks we're targeting (cash lives in tracks, general 1st = badge only)
 
-- **Zero.xyz — $2,500 (biggest).** Go deep: the agent's *act* step genuinely runs tools through
-  Zero's no-key layer. Must be load-bearing, not cosmetic.
-- **Pomerium — $1,000 (Most Innovative).** Policy-gated cross-provider routing = a real compilation
-  constraint. This is our innovation angle.
+- **Zero.xyz — $2,500 (biggest).** Go deep: OptiLoop analyzes, removes, merges, and selects tool
+  calls, then executes the retained calls through Zero's no-key layer.
+- **Pomerium — $1,000 (Most Innovative).** Policy enforcement constrains optimization, but is not
+  the core product.
 - **Nexla — $750 + $5k credits.** Nexla ADK feeds real-time agent traces/metrics into the *observe*
   step. Also fixes our Autonomy score (see below).
 - Akash = technical cascade target (credits track, secondary). Fillmore = skip (recruiting, no fit).
 
 ## Judging criteria (each 20%) — build to these
 
-- **Idea** — cross-provider, governance-aware compiler (wedge vs AgentCore).
+- **Idea** — the optimizer for prompts and tool use inside agent loops.
 - **Technical Implementation** — clean, working, debuggable.
 - **Tool Use** — Zero + Pomerium + Nexla genuinely load-bearing.
 - **Presentation** — 3-min demo; the before/after cost money-shot.
@@ -41,9 +41,9 @@ OptiLoop runs itself: **observe → detect → compile → eval → ship/revert*
 
 1. **Observe** — a controller polls **Nexla** for real-time agent traces + cost metrics.
 2. **Detect** — spots a cost spike / new/expensive loop.
-3. **Compile (act)** — auto-runs the optimizer (cascade + compression) via the router, tool calls
-   through **Zero**, routing constrained by **Pomerium**.
-4. **Eval (observe)** — runs the eval gate (mock / AgentCore).
+3. **Compile (act)** — compresses prompts, removes or merges redundant tool calls, selects the
+   cheapest correct tools, then applies model routing as a secondary pass.
+4. **Eval (observe)** — runs the local deterministic eval gate.
 5. **Self-correct** — if evals pass → ship the cheaper config; if red → auto-revert to the safe one.
 
 Hybrid demo: the loop is running autonomously on its own; a **Force Compile** button lets you trigger
@@ -51,31 +51,31 @@ a dramatic compile on stage. So it scores Autonomy *and* gives you a controllabl
 
 ## Scope
 
-- **Core (must demo):** autonomous controller loop + model cascading + eval gate + before/after cost cards.
-- **Real-but-simple:** prompt compression (strip system-prompt bloat, dedupe context).
-- **Stretch only:** request coalescing — the "and it also does this" bonus.
+- **Core (must demo):** prompt optimization + tool optimization + eval gate + before/after token,
+  tool-call, latency, and cost cards.
+- **Prompt optimization:** remove duplicated instructions and context, strip irrelevant history, and
+  shorten prompts while preserving required constraints.
+- **Tool optimization:** remove unused calls, merge duplicate reads/searches, reuse safe results, and
+  choose a cheaper equivalent tool where one exists.
+- **Supporting only:** model routing and governance policy.
+- **Stretch only:** cross-run caching after correctness and invalidation rules are proven.
 
-## Positioning (the wedge — say this, not "eval-gated optimizer")
+## Positioning (the wedge)
 
-AWS Bedrock AgentCore already does eval-gated agent optimization *within* AWS (Evaluations,
-prompt/tool Recommendations, A/B promotion, Intelligent Prompt Routing). Do NOT compete with that —
-sit on top of it and go where a single vendor structurally won't:
+Model routing is already widely available. OptiLoop optimizes the parts routers do not:
 
-> "OptiLoop compiles any agent loop **across providers** under your **data-governance policy**, and proves it didn't regress."
+> "OptiLoop compiles an entire agent loop — prompts, context, and tools — then proves it didn't regress."
 
-The moat = **cross-provider cascade (incl. off-AWS to Akash)** + **policy-gated routing (Pomerium)** +
-**runtime-agnostic input (ingests a Cursor loop)**. No single vendor ships this.
+The moat = **eval-backed prompt rewriting** + **tool-plan optimization** + **runtime-agnostic input**.
+Routing, provider choice, and policy enforcement support that compiler.
 
 ## Sponsor hooks — go deep on 4, don't bolt on 6
 
-- **Zero.xyz = tool access layer (load-bearing, free, zero-setup).** The agent's "act" step calls
-  tools *through* Zero — no API keys, free credit. This is what lets the loop actually *do* things.
-  (NOT a pricing feed — earlier framing dropped.)
-- **Akash = cheap cascade target.** The downgraded/self-hosted model runs on Akash. This is the
-  cross-provider destination AWS won't route you to — the core differentiator. Labeled in the trace.
-- **AWS = eval engine + frontier model provider.** Eval gate is Bedrock AgentCore Evaluations (the
-  "prod path"); frontier steps served by Bedrock. See CP2 — mock gate by default, real AgentCore
-  behind an env flag (needs AWS account/credits; don't let it block the demo).
+- **Zero.xyz = optimized tool execution layer.** OptiLoop compares the original and optimized tool
+  plans; retained calls execute through Zero. The demo must show fewer calls, not merely a Zero label.
+- **Akash = optional cheap model target.** Useful after prompt and tool optimization, but not the
+  product claim.
+- **Local eval gate = correctness proof.** Fixture-backed evals decide ship/revert with no cloud credits.
 - **Pomerium = compilation constraint.** Policy blocks PII-touching steps from cascading to an
   external/open model unless authorized. Implement policy logic locally (`policy.json`); layer real
   Pomerium only if time allows.
@@ -93,8 +93,8 @@ optiloop/
     main.py          # endpoints incl. /state, /force-compile (CP3)
     controller.py    # autonomous observe→compile→eval→ship/revert loop (CP6)
     nexla.py         # Nexla ADK real-time trace/metric feed (CP6)
-    optimizer.py     # cascade + compression (CP1)
-    router.py        # model choice via pricing table + Pomerium policy + Zero tools (CP1)
+    optimizer.py     # prompt + tool-plan optimization (CP1)
+    router.py        # supporting model choice + policy constraints (CP1)
     evals.py         # eval gate, pass/fail, ship-block (CP2)
     requirements.txt
   web/
@@ -123,8 +123,8 @@ and API response so the rest can build in parallel without touching each other's
         ▼             ▼               ▼              ▼
    ┌─────────┐  ┌──────────┐   ┌────────────┐  ┌────────────┐
    │ CP1     │  │ CP2      │   │ CP4        │  │ (sponsor   │
-   │ optimizer│  │ evals    │   │ design sys │  │ hooks fold │
-   │ + router│  │ + gate   │   │ theme.css  │  │ into CP1)  │
+   │ prompts │  │ evals    │   │ design sys │  │ hooks fold │
+   │ + tools │  │ + gate   │   │ theme.css  │  │ into CP1)  │
    └────┬────┘  └────┬─────┘   └─────┬──────┘  └────────────┘
         └──────┬─────┘               │
                ▼                     │
@@ -164,12 +164,13 @@ and API response so the rest can build in parallel without touching each other's
 1. Open dashboard → loop is **already running autonomously**: controller polling Nexla, a live feed
    of incoming agent traces, cost ticking. No manual trigger — this is the Autonomy proof.
 2. A trace with a cost spike arrives → controller auto-fires: baseline **$1.84**.
-3. **Force Compile** (your on-stage moment) → router picks cheaper models (tools via Zero),
-   compression strips bloat, **Pomerium blocks** the PII step from cascading to an external model.
+3. **Force Compile** (your on-stage moment) → prompt optimizer removes duplicate context, tool
+   optimizer removes or merges redundant calls, and the retained calls execute through Zero.
+   Model routing and Pomerium policy run afterward as supporting constraints.
 4. Eval gate runs → all green → controller **auto-ships** the cheaper config → **$0.22, 100% pass**.
 5. Optional: flip one eval red → gate goes red → controller **auto-reverts** to the safe config. Shows
    self-correction live.
-6. Before/After cost cards + grouped bar chart. Money shot.
+6. Before/after prompt tokens, tool calls, latency, and cost cards. Money shot.
 
 ## Risk guards
 

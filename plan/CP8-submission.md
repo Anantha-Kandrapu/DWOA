@@ -16,7 +16,7 @@ and is the gate to even being judged. Do not leave it to the last 10 minutes.
   - Zero.xyz — agent's act step runs tools through Zero's no-key layer.
   - Pomerium — policy-gated routing: PII steps can't cascade to external/open models.
   - Nexla — real-time trace/metric feed into the observe step.
-  - AWS — Bedrock AgentCore Evaluations as the eval gate (prod path); Bedrock for frontier steps.
+  - Local eval gate — deterministic fixture checks prove ship/revert behavior without cloud credits.
   - Akash — cheap cascaded model target. Cursor — input loop format.
 - **Architecture** — the tiny diagram + the loop.
 - **Run it** — the exact commands from CP7.
@@ -24,9 +24,8 @@ and is the gate to even being judged. Do not leave it to the last 10 minutes.
 
 ## DEMO_SCRIPT.md — beat-by-beat 3-minute recording
 Target 2:45 to leave margin. Beats:
-- **0:00–0:20** Hook: "Every team is burning money running agents on frontier models. AWS optimizes
-  within Bedrock — but it'll never route you off AWS, and it won't stop a PII step from leaking to an
-  open model. OptiLoop does both."
+- **0:00–0:20** Hook: "Every team is burning money running agents on frontier models. OptiLoop
+  compiles across providers under policy, then proves the cheaper loop did not regress."
 - **0:20–0:50** Show the dashboard already running autonomously — Nexla feed ticking, controller
   acting with no clicks. (Autonomy.)
 - **0:50–1:40** Force Compile: baseline $1.84 → $0.22, cross-provider cascade to Akash, Pomerium

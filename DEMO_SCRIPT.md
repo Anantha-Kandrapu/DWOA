@@ -16,7 +16,7 @@
 
 **Say:**
 
-> Every team is burning money running agents on frontier models. AWS can optimize within Bedrock, but it will not route an agent off AWS or enforce our cross-provider governance policy. OptiLoop does both: it compiles any agent loop across providers under policy, then proves it did not regress.
+> Every team is burning money running agents on frontier models. OptiLoop compiles any agent loop across providers under policy, then proves it did not regress before shipping the cheaper route.
 
 ## 0:20–0:50 — Autonomous observe and detect
 
@@ -40,7 +40,7 @@
 
 **Say:**
 
-> A lower cost is not enough. The eval gate—locally deterministic for this demo, with AWS Bedrock AgentCore Evaluations as the production path—must pass before OptiLoop ships. Here all evals pass, so the cheaper configuration ships. Now I inject a failing case. The gate turns red and OptiLoop automatically returns to the safe baseline. It will never ship a cheaper agent that fails your evals.
+> A lower cost is not enough. The local deterministic eval gate must pass before OptiLoop ships. Here all evals pass, so the cheaper configuration ships. Now I inject a failing case. The gate turns red and OptiLoop automatically returns to the safe baseline. It will never ship a cheaper agent that fails your evals.
 
 ## 2:15–2:45 — Close
 
@@ -48,10 +48,10 @@
 
 **Say:**
 
-> OptiLoop is a governance-aware compiler for agent loops: it observes runtime behavior, optimizes across providers, keeps policy-sensitive work safe, and continuously proves correctness before it saves money. That is why Zero, Pomerium, Nexla, AWS, Akash, and a Cursor-style input format are all load-bearing parts of one autonomous system.
+> OptiLoop is a governance-aware compiler for agent loops: it observes runtime behavior, optimizes across providers, keeps policy-sensitive work safe, and continuously proves correctness before it saves money. That is why Zero, Pomerium, Nexla, Akash, and a Cursor-style input format are all load-bearing parts of one autonomous system.
 
 ## Do not claim until verified
 
 - Do not state that the displayed cost reduction is final until CP7 has measured it end to end.
-- Do not state that AgentCore, Nexla, Zero, or Akash is live if the deterministic fixture fallback is running; describe the fallback accurately.
+- Do not state that Nexla, Zero, or Akash is live if the deterministic fixture fallback is running; describe the fallback accurately.
 - Do not claim a recording, screenshots, public GitHub repository, or Devpost submission exists until each has been completed and checked.

@@ -21,8 +21,8 @@ cd optiloop/web && npm i && npm run dev   # http://localhost:5173
 1. Backend boots; controller thread starts; `curl localhost:8000/state` shows `history` growing on its
    own with no other requests. (Autonomy proof works.)
 2. Frontend loads, polls `/state`, status strip shows "running" + Nexla feed ticking.
-3. `POST /force-compile` (or the button) → baseline **$1.84** → optimized **~$0.22**, savings shown,
-   bar chart + donut render, gate green, config flips to `optimized`.
+3. `POST /force-compile` (or the button) → prompt tokens and tool calls decrease; the audit explains
+   each removal or merge; latency and cost savings render; gate green; config flips to `optimized`.
 4. Pomerium: the PII `read` step is visibly kept on gpt-4o with the block reason. Confirm it never
    cascades.
 5. Zero: the act step's tool calls show `via: zero.xyz` in the trace.
@@ -34,7 +34,9 @@ cd optiloop/web && npm i && npm run dev   # http://localhost:5173
 
 ## Verification / correctness pass
 - Confirm `savings_pct` is computed from real math (not hardcoded) and matches the cards + bars.
-- Confirm no external call (Zero/Nexla/AgentCore) can throw uncaught — each must fall back to fixture.
+- Confirm prompt savings come from transformed prompt content, not a fixed multiplier.
+- Confirm duplicate read-only tool calls are merged and side-effecting calls are preserved.
+- Confirm no external call (Zero/Nexla) can throw uncaught — each must fall back to fixture.
 - Check the numbers are stable across reloads (deterministic) so the demo is repeatable.
 - Note the exact measured before/after cost to quote on stage ("up to X%", show the real delta).
 

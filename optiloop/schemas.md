@@ -18,7 +18,7 @@ Accepts an optional loop matching `fixtures/loop.json`. Returns:
 
 ## `GET /evals`
 
-Returns the eval gate: `{"passed": 6, "failed": 0, "total": 6, "cases": [{"id": "e1", "status": "pass", "ms": 120}], "gate": "green", "engine": "mock"}`.
+Returns the eval gate: `{"passed": 6, "failed": 0, "total": 6, "cases": [{"id": "e1", "status": "pass", "ms": 120}], "gate": "green", "engine": "local"}`.
 
 ## `GET /state`
 

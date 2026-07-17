@@ -34,7 +34,7 @@ frozen contracts. Do NOT implement logic here — only structure + data shapes.
   "source": "zero.xyz",
   "models": {
     "gpt-4o":            {"in": 0.005,  "out": 0.015,  "provider": "openai",  "external": true},
-    "claude-haiku":      {"in": 0.0008, "out": 0.004,  "provider": "aws-bedrock", "external": true},
+    "claude-haiku":      {"in": 0.0008, "out": 0.004,  "provider": "anthropic", "external": true},
     "llama-3-8b-akash":  {"in": 0.0001, "out": 0.0002, "provider": "akash",   "external": false}
   }
 }

@@ -35,8 +35,8 @@ The dashboard is intended to show the loop already running autonomously, with a 
 - **Zero.xyz:** the agent's act step runs tools through Zero's no-key access layer; this is part of the compiled loop, not a cosmetic integration.
 - **Pomerium:** policy-gated routing prevents PII-touching steps from cascading to external or open models unless authorized. The planned prototype evaluates this policy locally.
 - **Nexla:** the observe step consumes a real-time trace and metric feed to identify expensive agent activity.
-- **AWS Bedrock AgentCore Evaluations:** the production eval-gate path. The prototype uses a deterministic local mock gate by default, with AgentCore enabled behind `USE_AGENTCORE`.
-- **AWS Bedrock:** the planned frontier-model provider for applicable steps.
+- **Local eval gate:** deterministic fixture-backed checks decide whether the optimized loop ships or reverts.
+- **OpenAI:** the frontier-model provider for protected steps.
 - **Akash:** the planned low-cost, cross-provider cascade target for eligible steps.
 - **Cursor:** the input format is a Cursor-Composer-style loop JSON, so an existing agent loop can be compiled rather than rewritten.
 
@@ -66,7 +66,7 @@ Then open the frontend at `http://localhost:5173`. CP7 should verify the autonom
 
 ```text
 optiloop/
-  server/       FastAPI API, optimizer, router, evals, controller, and Nexla feed
+  server/       Single-file FastAPI demo API
   web/          Vite React dashboard
   fixtures/     Deterministic loop, trace, pricing, policy, and eval data
   schemas.md    Shared JSON and API contracts

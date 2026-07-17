@@ -23,7 +23,7 @@ Runs in a background thread/asyncio task started on server boot.
   1. **Observe:** read newest trace from `nexla`.
   2. **Detect:** if `observed_cost_usd` exceeds a threshold (or a loop not yet optimized appears),
      mark it for compilation.
-  3. **Act:** call `optimizer.compile(loop)` (cascade + compression; tools via Zero; Pomerium gate).
+  3. **Act:** call `optimizer.compile(loop)` (prompt + tool optimization; routing and policy afterward).
   4. **Observe again:** `evals.run_evals()`.
   5. **Self-correct:** if `gate_blocks_ship` → keep/revert to the safe (baseline) config and log a
      `reverted` event; else → mark optimized config as `shipped`.
