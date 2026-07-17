@@ -1,36 +1,38 @@
-# CP2 — Eval Gate ("Buildkite")
+# CP2 — Local Behavioral Eval Gate
 
-**Owner:** backend agent B.
-**Depends on:** CP0 (fixtures + schemas frozen).
-**Files you own:** `optiloop/server/evals.py`. Do NOT touch `main.py`, `optimizer.py`, or `router.py`.
+**Depends on:** CP0
+**Files:** `optiloop/server/evals.py`
 
 ## Goal
-Run the eval cases in `fixtures/evals.json` against the (mock) optimized loop and return the
-`GET /evals` response from `schemas.md`. This is the correctness gate that makes OptiLoop a
-*compiler*, not just a cost cutter.
 
-## Eval engine: local deterministic gate
-- Local `mock_run` gate (below). Instant and demo-safe.
-- In the response, include `"engine": "local"`.
+Prove that prompt and tool-plan changes preserve the loop's output and side effects. The evaluator
+must not manufacture each case's expected answer.
 
-## evals.py
-- `mock_run(case)`: deterministic fake loop execution. Given `case.input`, produce an output string
-  that contains `case.expect` (so the demo passes green). Keep a `FAIL_IDS` toggle (default empty)
-  so you can force a red case on demand for the "watch it block a bad optimization" moment.
-- `run_evals(fail_ids=())`:
-  - For each case: run `mock_run`, check `expect` substring, record `status` (`pass`/`fail`) + a
-    deterministic `ms` latency (e.g. 80–160).
-  - Aggregate `passed`, `failed`, `total`, and `gate` = `green` if failed==0 else `red`.
-- Expose `gate_blocks_ship(result)` → bool: True if gate is red (used by API to refuse shipping the
-  cheaper loop). This is the "will never ship a cheaper agent that fails your evals" guarantee.
+## Evaluation flow
 
-## Demo hook
-- Provide a way to flip one case to fail (`fail_ids=["e3"]`) so on stage you can show: cheaper loop
-  proposed → eval gate goes red → OptiLoop refuses to ship → reverts to safe config. Optional but
-  strong.
+1. Run the baseline loop against every fixture case.
+2. Run the optimized loop against the same case.
+3. Apply deterministic, use-case-specific assertions to both outputs.
+4. Compare ordered side effects and their arguments.
+5. Return a red gate if any assertion fails or side effects differ.
+
+Read-only calls may decrease. Side-effecting calls must match the accepted baseline exactly unless
+the use-case contract explicitly permits a change.
+
+## API
+
+- `run_evals(baseline, optimized, fail_ids=())` returns case results, totals,
+  `side_effects_match`, and `gate`.
+- `quality_score(result)` returns the percentage of weighted assertions passed. Assertion weights
+  are fixture-defined and immutable across iterations.
+- `gate_blocks_ship(result)` returns `True` unless every case passes and side effects match.
+- `fail_ids=["e3"]` remains a deterministic demo hook for showing rollback.
 
 ## Acceptance
-- `python -c "from evals import run_evals; import json; print(json.dumps(run_evals(),indent=2))"`
-  prints 6/6 pass, `gate: green`.
-- Passing `fail_ids=["e3"]` yields `gate: red` and `gate_blocks_ship` True.
-- Heavily commented. No unit tests.
+
+- The known-good candidate passes every fixture case.
+- Removing a required prompt constraint turns the gate red.
+- Removing, duplicating, reordering, or changing a side-effecting call turns the gate red.
+- The injected failure turns the gate red.
+- The same eval result always produces the same quality score.
+- The response matches `optiloop/schemas.md`.

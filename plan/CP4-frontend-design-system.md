@@ -11,7 +11,6 @@ these classes.
 ## Scaffold
 ```
 npm create vite@latest web -- --template react-ts
-cd web && npm i recharts
 ```
 Leave `App.tsx` as a placeholder (`<div className="board">OptiLoop</div>`); CP5 fills it.
 
@@ -25,12 +24,12 @@ Leave `App.tsx` as a placeholder (`<div className="board">OptiLoop</div>`); CP5 
   - `.hero-number` (large, `#1a1a1a`, tabular-nums).
   - `.chip` (outset small pill), `.chip--pass` (outset + check ::before "✓"), `.chip--fail` (inset + cross ::before "✕"). Convey pass/fail by depth + glyph, NOT color.
   - `.btn` (outset, active state = inset). `.btn:active` presses in.
-  - `.bar-grid`, `.trace-row`, `.tab`/`.tab--active`.
-- Recharts styling helper vars: bars use grayscale — baseline bars `#9a9a9a`, optimized bars `#4a4a4a`; grid lines `#cfcfcf`. Export these as CSS vars so CP5 reads them.
+  - `.bar-grid`, `.bar`, `.trace-row`, `.tab`/`.tab--active`.
+- Native CSS bars use grayscale: baseline `#9a9a9a`, optimized `#4a4a4a`, grid `#cfcfcf`.
 - Rounded, soft, generous whitespace. Font: system sans, `tabular-nums` for money.
 
 ## Acceptance
 - `npm run dev` serves a blank neumorphic board.
 - All classes above exist and visibly render inset vs outset.
 - Zero color beyond the gray ramp + near-black accent.
-- No unit tests.
+- Verify the stylesheet through the CP5 dashboard.

@@ -1,121 +1,80 @@
-# CP0 — Scaffold + Shared Contracts  [BLOCKS ALL]
+# CP0 — Scaffold + Shared Contracts
 
-**Owner:** first agent. Do this before anything else.
-**Depends on:** nothing.
+**Depends on:** nothing
+**Blocks:** every implementation checkpoint
 
 ## Goal
-Create the repo skeleton, all fixtures, and `schemas.md` so every other checkpoint builds against
-frozen contracts. Do NOT implement logic here — only structure + data shapes.
+
+Freeze the loop, optimization-audit, eval, and controller-state shapes before implementation.
 
 ## Tasks
-1. Create dirs: `optiloop/server`, `optiloop/web/src`, `optiloop/fixtures`, `plan/` (exists).
-2. `optiloop/server/requirements.txt`: `fastapi`, `uvicorn`, `pydantic`.
-3. Create the 4 fixtures below.
-4. Write `optiloop/schemas.md` documenting request/response shapes for `/compile`, `/evals`, `/run`.
 
-## Fixtures
+1. Keep `optiloop/server`, `optiloop/web/src`, and `optiloop/fixtures`.
+2. Keep backend dependencies limited to `fastapi`, `uvicorn`, and `pydantic`.
+3. Create deterministic fixtures for one complete use case.
+4. Keep `optiloop/schemas.md` synchronized with the actual API.
 
-`fixtures/loop.json` — Cursor-Composer-style agent loop:
+## Required loop fixture
+
+`fixtures/loop.json` must contain enough information to optimize real content:
+
 ```json
 {
   "name": "code-fix-agent",
   "steps": [
-    {"id": "plan",    "role": "planner",  "model": "gpt-4o",      "prompt_tokens": 2400, "touches_pii": false},
-    {"id": "read",    "role": "observer", "model": "gpt-4o",      "prompt_tokens": 3100, "touches_pii": true},
-    {"id": "edit",    "role": "actor",    "model": "gpt-4o",      "prompt_tokens": 4200, "touches_pii": false},
-    {"id": "verify",  "role": "critic",   "model": "gpt-4o",      "prompt_tokens": 1800, "touches_pii": false}
+    {
+      "id": "inspect",
+      "role": "observer",
+      "model": "gpt-4o",
+      "prompt": "Repository rules...\nIssue...\nRepository rules...",
+      "touches_pii": false,
+      "tools": [
+        {"id": "read-1", "name": "read_file", "args": {"path": "parser.py"}, "side_effect": false},
+        {"id": "read-2", "name": "read_file", "args": {"path": "parser.py"}, "side_effect": false}
+      ]
+    },
+    {
+      "id": "edit",
+      "role": "actor",
+      "model": "gpt-4o",
+      "prompt": "Apply the verified fix once.",
+      "touches_pii": false,
+      "tools": [
+        {"id": "write-1", "name": "write_file", "args": {"path": "parser.py"}, "side_effect": true}
+      ]
+    }
   ]
 }
 ```
 
-`fixtures/pricing.json` — Zero.xyz pricing snapshot ($ per 1k tokens, in/out):
-```json
-{
-  "source": "zero.xyz",
-  "models": {
-    "gpt-4o":            {"in": 0.005,  "out": 0.015,  "provider": "openai",  "external": true},
-    "claude-haiku":      {"in": 0.0008, "out": 0.004,  "provider": "anthropic", "external": true},
-    "llama-3-8b-akash":  {"in": 0.0001, "out": 0.0002, "provider": "akash",   "external": false}
-  }
-}
-```
+The fixture must include:
 
-`fixtures/policy.json` — Pomerium policy:
-```json
-{
-  "rules": [
-    {"effect": "deny", "when": {"touches_pii": true, "target_external": true},
-     "reason": "PII step cannot cascade to external/open model without authorization"}
-  ]
-}
-```
+- duplicated prompt content that can be removed safely;
+- two identical read-only calls that can be merged;
+- at least one side-effecting call that must remain unchanged;
+- explicit model and policy metadata for the secondary routing pass.
 
-`fixtures/traces.json` — simulated Nexla real-time trace stream (controller's observe input):
-```json
-{
-  "source": "nexla",
-  "traces": [
-    {"loop_id": "run-101", "ts": "T+0",  "observed_cost_usd": 1.84, "loop_ref": "code-fix-agent"},
-    {"loop_id": "run-102", "ts": "T+2s", "observed_cost_usd": 1.91, "loop_ref": "code-fix-agent"},
-    {"loop_id": "run-103", "ts": "T+4s", "observed_cost_usd": 2.05, "loop_ref": "code-fix-agent"}
-  ]
-}
-```
+## Other fixtures
 
-`fixtures/evals.json` — ~6 cases (input → expected substring the loop output must contain):
-```json
-{
-  "cases": [
-    {"id": "e1", "input": "fix null deref in parser.py",   "expect": "null check"},
-    {"id": "e2", "input": "add retry to fetch()",          "expect": "retry"},
-    {"id": "e3", "input": "rename var foo to userId",       "expect": "userId"},
-    {"id": "e4", "input": "handle empty list case",         "expect": "empty"},
-    {"id": "e5", "input": "add type hints to run()",        "expect": "def run"},
-    {"id": "e6", "input": "guard divide by zero",           "expect": "zero"}
-  ]
-}
-```
+- `evals.json`: inputs, expected outputs, and expected side effects.
+- `traces.json`: observed token, tool-call, latency, and cost metrics.
+- `pricing.json`: optional model-pricing data for secondary routing.
+- `policy.json`: constraints that no optimization may violate.
 
-## API contracts (write into schemas.md — FROZEN)
+## Frozen API contracts
 
-`POST /compile` → returns baseline + optimized side by side:
-```json
-{
-  "baseline":  {"cost_usd": 1.84, "tokens": 11500, "steps": [ {"id":"plan","model":"gpt-4o","cost":0.42} ]},
-  "optimized": {"cost_usd": 0.22, "tokens": 6100,  "steps": [ {"id":"plan","model":"llama-3-8b-akash","cost":0.03,"downgraded":true} ]},
-  "savings_pct": 88,
-  "policy_blocks": [ {"step":"read","reason":"PII step cannot cascade...","kept_model":"gpt-4o"} ],
-  "compression": {"tokens_saved": 3200, "techniques": ["system-prompt strip","context dedupe"]}
-}
-```
+`schemas.md` defines:
 
-`GET /evals` → eval gate result (the "Buildkite" panel):
-```json
-{"passed": 6, "failed": 0, "total": 6,
- "cases": [ {"id":"e1","status":"pass","ms":120} ],
- "gate": "green"}
-```
-
-`GET /state` → the autonomous controller's live state (CP6). Drives the whole dashboard:
-```json
-{
-  "running": true,
-  "current_config": "optimized",
-  "last_event": {"ts":"T+4s","action":"shipped","cost_before":1.84,"cost_after":0.22,"gate":"green"},
-  "compile": { "...": "the /compile shape" },
-  "evals":   { "...": "the /evals shape" },
-  "traces":  [ {"loop_id":"run-103","observed_cost_usd":2.05,"via":"nexla"} ],
-  "history": [ {"ts":"T+2s","action":"observed"}, {"ts":"T+4s","action":"shipped"} ]
-}
-```
-
-`POST /force-compile` → runs one controller tick immediately (manual demo moment). Returns `/state`.
-
-`POST /inject-fail` body `{"case":"e3"}` → flips one eval red on next tick (demo auto-revert). Returns `/state`.
-
-`POST /run` (optional stretch) → executes one loop, returns trace. Same step shape as `/compile`.
+- `POST /compile`: baseline, candidate, prompt audit, tool audit, policy blocks, and derived savings;
+- `GET /evals`: behavioral results, side-effect comparison, and gate;
+- `GET /state`: autonomous controller state;
+- `GET /iterations` and `GET /iterations/{id}`: immutable replay snapshots;
+- `POST /force-compile`, `POST /inject-fail`, and `POST /run`.
 
 ## Acceptance
-- All 4 fixtures parse as valid JSON.
-- `schemas.md` documents the three endpoints with the shapes above.
-- Dirs + `requirements.txt` exist.
+
+- Every fixture parses as valid JSON.
+- Prompt and tool-call content—not only aggregate counts—is present.
+- Every tool call declares whether it has side effects.
+- Iteration fixtures contain a stable sequence, quality score, change summaries, and full snapshots.
+- Example API values can be derived from fixture content; no fixed savings percentage is required.

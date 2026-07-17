@@ -9,12 +9,14 @@ infrastructure, not the product.
 ## Locked decisions
 
 - **Frontend:** single-file Vite React (`react-ts`), plain `fetch` + `useState`. No TanStack, no router, no query lib.
-- **Charts:** Recharts, styled grayscale.
+- **Charts:** native CSS bars and counters; no chart dependency is required.
 - **Design:** neumorphic, monochrome. Base `#e0e0e0`, dual light/dark soft shadows. Only "accent" = near-black for the hero cost number + passing state. Pass = outset chip + check glyph; fail = inset/pressed chip + cross glyph.
 - **Backend:** FastAPI, ~200 lines. Endpoints: `POST /compile`, `GET /evals`, `POST /run`.
-- **LLM calls:** MOCKED via fixtures with deterministic outputs (demo-safe). External platform labels are fixture-backed so the live demo cannot hard-fail.
+- **Loop execution:** deterministic local fixtures first. External integrations must be labeled as
+  fixture-backed until verified live.
 - **Eval engine:** local deterministic gate only. No live evaluator required.
-- **No unit tests.** Minimal, heavily commented, prototype-grade.
+- **Verification:** one small deterministic end-to-end check for prompt preservation, tool safety,
+  and eval-gated rollback.
 
 ## Prize tracks we're targeting (cash lives in tracks, general 1st = badge only)
 
@@ -22,16 +24,15 @@ infrastructure, not the product.
   calls, then executes the retained calls through Zero's no-key layer.
 - **Pomerium — $1,000 (Most Innovative).** Policy enforcement constrains optimization, but is not
   the core product.
-- **Nexla — $750 + $5k credits.** Nexla ADK feeds real-time agent traces/metrics into the *observe*
-  step. Also fixes our Autonomy score (see below).
-- Akash = technical cascade target (credits track, secondary). Fillmore = skip (recruiting, no fit).
+- **Optional integrations:** Pomerium, Nexla, and Akash are supporting only; include them when they
+  strengthen the verified optimization story.
 
 ## Judging criteria (each 20%) — build to these
 
 - **Idea** — the optimizer for prompts and tool use inside agent loops.
 - **Technical Implementation** — clean, working, debuggable.
-- **Tool Use** — Zero + Pomerium + Nexla genuinely load-bearing.
-- **Presentation** — 3-min demo; the before/after cost money-shot.
+- **Tool Use** — tool-plan optimization must be real and visible; Zero may execute retained calls.
+- **Presentation** — 3-min demo; prompt diff + tool audit + verified before/after metrics.
 - **Autonomy — "acts on real-time data without manual intervention."** THIS is our weak axis. The
   self-running loop (below) is what earns it. Do not skimp here.
 
@@ -39,20 +40,23 @@ infrastructure, not the product.
 
 OptiLoop runs itself: **observe → detect → compile → eval → ship/revert**, no human in the loop.
 
-1. **Observe** — a controller polls **Nexla** for real-time agent traces + cost metrics.
-2. **Detect** — spots a cost spike / new/expensive loop.
+1. **Observe** — consume an agent trace containing prompts, tool calls, latency, and cost.
+2. **Detect** — find duplicated context, redundant read-only calls, or an expensive loop.
 3. **Compile (act)** — compresses prompts, removes or merges redundant tool calls, selects the
    cheapest correct tools, then applies model routing as a secondary pass.
 4. **Eval (observe)** — runs the local deterministic eval gate.
-5. **Self-correct** — if evals pass → ship the cheaper config; if red → auto-revert to the safe one.
+5. **Self-correct** — if evals pass → ship the optimized config; if red → keep the safe one.
 
 Hybrid demo: the loop is running autonomously on its own; a **Force Compile** button lets you trigger
 a dramatic compile on stage. So it scores Autonomy *and* gives you a controllable money-shot.
 
+Each controller tick creates an immutable iteration snapshot. The dashboard plots quality score over
+time, explains every dot, and can replay any previous snapshot without rerunning it.
+
 ## Scope
 
-- **Core (must demo):** prompt optimization + tool optimization + eval gate + before/after token,
-  tool-call, latency, and cost cards.
+- **Core (must demo):** prompt optimization + tool optimization + eval gate + a live iteration
+  timeline showing quality score, tokens, tool calls, latency, and cost.
 - **Prompt optimization:** remove duplicated instructions and context, strip irrelevant history, and
   shorten prompts while preserving required constraints.
 - **Tool optimization:** remove unused calls, merge duplicate reads/searches, reuse safe results, and
@@ -79,11 +83,9 @@ Routing, provider choice, and policy enforcement support that compiler.
 - **Pomerium = compilation constraint.** Policy blocks PII-touching steps from cascading to an
   external/open model unless authorized. Implement policy logic locally (`policy.json`); layer real
   Pomerium only if time allows.
-- **Cursor = input format (bonus).** Loop input is a Cursor-Composer-style JSON so a Cursor judge
-  sees their own agent's loop compiled cheaper across providers. Cursor SDK is programmable/headless
-  if we want a live ingest.
-- **Nexla / Fillmore = skip.** Nexla only fits as an optional data/context source; Fillmore
-  (recruiting) has no fit. A bolted-on hook reads worse than none.
+- **Cursor = input format (bonus).** A Cursor-style coding-agent trace is one supported use case.
+- **Nexla = optional trace source.** Use only if a real feed is verified; otherwise label fixtures.
+- **Fillmore = skip.** It does not fit the product.
 
 ## Repo layout
 
@@ -92,7 +94,7 @@ optiloop/
   server/
     main.py          # endpoints incl. /state, /force-compile (CP3)
     controller.py    # autonomous observe→compile→eval→ship/revert loop (CP6)
-    nexla.py         # Nexla ADK real-time trace/metric feed (CP6)
+    trace_feed.py    # fixture-backed or verified live trace input (CP6)
     optimizer.py     # prompt + tool-plan optimization (CP1)
     router.py        # supporting model choice + policy constraints (CP1)
     evals.py         # eval gate, pass/fail, ship-block (CP2)
@@ -102,7 +104,7 @@ optiloop/
     src/theme.css    # neumorphic monochrome system (CP4)
   fixtures/
     loop.json        # sample agent loop (Cursor SDK-style)     (CP0)
-    traces.json      # simulated Nexla real-time trace stream    (CP0)
+    traces.json      # deterministic agent trace stream           (CP0)
     evals.json       # ~6 eval cases                              (CP0)
     pricing.json     # local model pricing table                  (CP0)
     policy.json      # Pomerium policy                            (CP0)
@@ -140,7 +142,7 @@ and API response so the rest can build in parallel without touching each other's
 ```
 
 - **Parallel wave 1:** CP1, CP2, CP4 (all only need CP0).
-- **CP6** (autonomous controller + Nexla feed) needs CP1 + CP2. Owns `controller.py`, `nexla.py`.
+- **CP6** (autonomous controller + trace feed) needs CP1 + CP2.
 - **CP3** needs CP1 + CP2 + CP6 (exposes `/state`, `/force-compile`).
 - **CP5** can start against CP0 contracts immediately (mock fetch), wire to CP3 when ready.
 - **CP7** (integration + verification) needs everything landed — the highest-risk step; own it.
@@ -152,7 +154,7 @@ and API response so the rest can build in parallel without touching each other's
 - 11:00–11:20 CP0
 - 11:20–1:00 CP1 / CP2 / CP4 in parallel; CP8 (README/script) drafting starts
 - 1:00–1:30 lunch
-- 1:30–2:15 CP6 (controller + Nexla)
+- 1:30–2:15 CP6 (controller + trace feed)
 - 2:15–2:45 CP3 (API glue, starts controller)
 - 1:30–3:15 CP5 (overlaps, wire to /state)
 - 3:15–4:00 CP7 integration + verification (record known-good demo path)
@@ -161,18 +163,18 @@ and API response so the rest can build in parallel without touching each other's
 
 ## Demo flow (on screen)
 
-1. Open dashboard → loop is **already running autonomously**: controller polling Nexla, a live feed
-   of incoming agent traces, cost ticking. No manual trigger — this is the Autonomy proof.
-2. A trace with a cost spike arrives → controller auto-fires: baseline **$1.84**.
+1. Open dashboard → the controller is consuming agent traces and detecting prompt/tool waste.
+2. A trace with duplicated context and tool reads arrives → controller auto-fires.
 3. **Force Compile** (your on-stage moment) → prompt optimizer removes duplicate context, tool
    optimizer removes or merges redundant calls, and the retained calls execute through Zero.
    Model routing and Pomerium policy run afterward as supporting constraints.
-4. Eval gate runs → all green → controller **auto-ships** the cheaper config → **$0.22, 100% pass**.
+4. Eval gate runs → all green → controller ships the measured optimization.
 5. Optional: flip one eval red → gate goes red → controller **auto-reverts** to the safe config. Shows
    self-correction live.
-6. Before/after prompt tokens, tool calls, latency, and cost cards. Money shot.
+6. Watch quality score move on the live timeline; click a dot to inspect its prompt/tool changes.
+7. Open **Replay**, select an older iteration, and replay its recorded optimization and gate decision.
 
 ## Risk guards
 
 - Fixture fallback on every external call.
-- Say "up to 80% / measured live" on stage; show the real delta, don't promise a fixed number.
+- Show only the measured delta from the verified demo run.

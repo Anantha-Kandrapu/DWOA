@@ -1,33 +1,33 @@
-# CP6 — Autonomous Controller + Nexla Feed  [scores the Autonomy 20% + Nexla track]
+# CP6 — Autonomous Controller + Trace Feed
 
 **Owner:** backend agent (after CP1 + CP2 land).
 **Depends on:** CP1 (`optimizer.compile`), CP2 (`evals.run_evals`, `gate_blocks_ship`), CP0 (contracts).
-**Files you own:** `optiloop/server/controller.py`, `optiloop/server/nexla.py`. Do NOT touch optimizer/evals internals — only import them.
+**Files you own:** `optiloop/server/controller.py`, `optiloop/server/trace_feed.py`.
 
 ## Why this exists
 Autonomy is 20% of judging ("acts on real-time data without manual intervention") and it's our
 weakest axis. This checkpoint makes OptiLoop self-directing: observe → detect → compile → eval →
-ship/revert, with no human. It also lands the **Nexla** track (real-time data layer).
+ship or keep-baseline, with no human.
 
-## nexla.py — the Nexla ADK real-time feed
-- `stream_traces()` → generator/iterator yielding agent traces from `fixtures/traces.json`, one every
-  ~2s, to simulate a live Nexla data stream. Each trace = `{loop_id, steps[], observed_cost_usd, ts}`.
-- If `os.environ.get("USE_NEXLA")`: pull from the real Nexla ADK instead; wrap in try/except → fall
-  back to the fixture stream silently. Never let a live feed break the demo.
+## trace_feed.py
+- `stream_traces()` yields traces from `fixtures/traces.json` every ~2 seconds.
+- An optional verified live adapter may replace the fixture source.
 - Expose `latest_traces(n)` so the API/UI can show the incoming feed.
-- This is the **observe** input. Label the source `via: nexla` so the UI/trace shows it.
+- Label every trace with its real source.
 
 ## controller.py — the self-directing loop
 Runs in a background thread/asyncio task started on server boot.
 - `tick()` (one iteration):
-  1. **Observe:** read newest trace from `nexla`.
-  2. **Detect:** if `observed_cost_usd` exceeds a threshold (or a loop not yet optimized appears),
-     mark it for compilation.
+  1. **Observe:** read the newest agent trace.
+  2. **Detect:** mark traces with duplicated prompt content, redundant read-only calls, or excessive
+     latency/cost for compilation.
   3. **Act:** call `optimizer.compile(loop)` (prompt + tool optimization; routing and policy afterward).
   4. **Observe again:** `evals.run_evals()`.
   5. **Self-correct:** if `gate_blocks_ship` → keep/revert to the safe (baseline) config and log a
      `reverted` event; else → mark optimized config as `shipped`.
-  6. Append an event to an in-memory `history` list (timestamp, action, cost_before/after, gate).
+  6. Compute a comparable quality score from weighted eval assertions.
+  7. Append an immutable iteration snapshot containing metrics, changes, compile output, eval output,
+     action, and gate.
 - `state()` → returns current controller state for the API: `running`, `last_event`, `current_config`
   (baseline|optimized), latest `compile` result, latest `evals` result, `history[]`, and the live
   `traces` feed. This is what `GET /state` (CP3) serves.
@@ -44,5 +44,7 @@ Runs in a background thread/asyncio task started on server boot.
   requests made.
 - `force_compile()` produces a baseline→optimized transition with a green gate and `shipped`.
 - `inject_fail("e3")` then a tick shows `red` gate and `reverted`.
-- Nexla feed visibly streams traces (fixture by default, real ADK behind `USE_NEXLA`).
-- Heavily commented. No unit tests.
+- The trace feed visibly includes prompt and tool metrics. Label fixture data accurately.
+- Scores use the same formula and weights across every iteration.
+- Reading an old iteration never reruns tools or mutates live state.
+- Cover ship and keep-baseline behavior in the CP7 end-to-end check.

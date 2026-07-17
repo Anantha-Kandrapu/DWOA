@@ -29,10 +29,11 @@ required behavior. Produce baseline and optimized plans exactly as defined in `s
   - Rank models by cost ascending.
   - For each, check policy: if `step.touches_pii` and candidate `external` is true and a `deny` rule matches → skip it (record the block).
   - Return chosen model + whether it was `downgraded` + any `policy_block`.
-- Cost of a step = `(prompt_tokens/1000)*in + (est_out/1000)*out`. Use `est_out = prompt_tokens*0.3` for a deterministic demo number.
+- Derive model cost from the optimized prompt token count; routing remains a secondary pass.
 
 ## optimizer.py
-- `baseline(loop, pricing)`: every step stays on its original model; sum costs/tokens.
+- `baseline(loop, pricing)`: preserve original prompts and tool plans; derive tokens, calls, latency,
+  and cost.
 - `compress(step)`: apply explicit prompt transformations and calculate the resulting token count.
 - `optimize_tools(loop)`: return a safe, smaller tool plan plus an audit of each change.
 - `optimize(loop, pricing, policy)`:
@@ -40,18 +41,18 @@ required behavior. Produce baseline and optimized plans exactly as defined in `s
   2. optimize tool plans,
   3. route models as a secondary pass,
   4. collect prompt, tool, policy, latency, and cost summaries.
-- `compile(loop)`: returns the full `/compile` response dict (baseline + optimized + savings_pct + policy_blocks + compression).
+- `compile(loop)`: returns the full response in `schemas.md`, including prompt and tool audit trails.
 
 ## Supporting hooks
-- Pomerium: the `read` step touches PII, so it must be BLOCKED from cascading and kept on `gpt-4o`. `policy_blocks` must contain it. This is the demo's proof Pomerium is load-bearing.
-- Zero.xyz: the "act" step's tool calls route via `zero_tools()`; trace shows `via: zero.xyz`.
+- Pomerium: an optional policy adapter may block a sensitive step from external routing.
+- Zero.xyz: retained tool calls may execute through `zero_tools()` when the integration is verified.
 - Akash: an optional cheap cascade target after prompt and tool optimization.
 - OpenAI: frontier steps carry `provider: openai`; the eval gate (CP2) is local.
 
 ## Acceptance
-- `python -c "from optimizer import compile; import json; print(json.dumps(compile(json.load(open('../fixtures/loop.json'))),indent=2))"` prints a valid `/compile` response.
+- Compiling `fixtures/loop.json` produces a response matching `schemas.md`.
 - Prompt and tool reductions are derived from the actual plans, not hardcoded percentages.
 - Side-effecting tool calls are unchanged.
 - Duplicate read-only calls are merged and visible in the optimization audit.
-- The PII `read` step appears in `policy_blocks` and stays on gpt-4o.
-- Heavily commented. No unit tests.
+- Policy-blocked steps remain unchanged.
+- Leave one deterministic compiler check covering prompt preservation and tool side effects.
