@@ -7,7 +7,7 @@
 
 Lead with:
 
-> OptiLoop removes wasted prompt tokens and tool calls, then proves the optimized agent still works.
+> DWOA removes wasted prompt tokens and tool calls, then proves the optimized agent still works.
 
 The README must explain:
 

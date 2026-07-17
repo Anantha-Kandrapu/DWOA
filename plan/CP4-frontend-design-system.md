@@ -12,7 +12,7 @@ these classes.
 ```
 npm create vite@latest web -- --template react-ts
 ```
-Leave `App.tsx` as a placeholder (`<div className="board">OptiLoop</div>`); CP5 fills it.
+Leave `App.tsx` as a placeholder (`<div className="board">DWOA</div>`); CP5 fills it.
 
 ## theme.css — rules
 - Palette: base `#e0e0e0`; text `#3a3a3a`; near-black accent `#1a1a1a` (ONLY for hero number + pass state). No other colors.

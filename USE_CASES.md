@@ -1,6 +1,6 @@
-# OptiLoop Use Cases
+# DWOA Use Cases
 
-Each use case demonstrates the same contract: OptiLoop may reduce prompt tokens and tool calls, but
+Each use case demonstrates the same contract: DWOA may reduce prompt tokens and tool calls, but
 the optimized loop ships only when its task-specific evals pass.
 
 ## 1. Customer-support resolution agent
@@ -17,7 +17,7 @@ draft a response, and update the ticket.
 - The agent fetches the same account and order twice.
 - It searches the policy tool once per candidate response.
 
-### OptiLoop compilation
+### DWOA compilation
 
 - Keep only the policy sections relevant to the detected issue.
 - Replace repeated context with one shared, structured context block.
@@ -56,7 +56,7 @@ verification.
 - The same search query and dependency metadata commands run multiple times.
 - Broad test commands run after every edit.
 
-### OptiLoop compilation
+### DWOA compilation
 
 - Deduplicate repository instructions and issue context.
 - Carry forward only referenced code excerpts instead of entire files.
@@ -96,7 +96,7 @@ purchase order, and submit an approved record to accounting.
 - Duplicate checks run once per extracted field instead of once per invoice.
 - Accounting submission is retried without distinguishing an unknown result from a failed result.
 
-### OptiLoop compilation
+### DWOA compilation
 
 - Convert OCR output into one compact structured context.
 - Keep only extraction rules relevant to the invoice type.

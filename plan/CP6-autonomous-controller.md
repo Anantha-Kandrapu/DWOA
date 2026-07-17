@@ -6,7 +6,7 @@
 
 ## Why this exists
 Autonomy is 20% of judging ("acts on real-time data without manual intervention") and it's our
-weakest axis. This checkpoint makes OptiLoop self-directing: observe → detect → compile → eval →
+weakest axis. This checkpoint makes DWOA self-directing: observe → detect → compile → eval →
 ship or keep-baseline, with no human.
 
 ## trace_feed.py

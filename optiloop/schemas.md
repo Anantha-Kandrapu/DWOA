@@ -1,4 +1,4 @@
-# OptiLoop API contracts
+# DWOA API contracts
 
 All endpoints return JSON. Fixture-backed values keep the prototype deterministic, but metrics must
 be derived from the submitted loop rather than hardcoded.
@@ -14,7 +14,7 @@ Each step contains its prompt and tool plan so the compiler can optimize real co
     {
       "id": "inspect",
       "prompt": "Repository rules...\nIssue...\nRepository rules...",
-      "model": "gpt-4o",
+      "model": "zai-org/GLM-5.2",
       "touches_pii": false,
       "tools": [
         {"id": "read-1", "name": "read_file", "args": {"path": "parser.py"}, "side_effect": false},

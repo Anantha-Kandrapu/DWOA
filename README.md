@@ -1,6 +1,6 @@
-# OptiLoop
+# DWOA
 
-> OptiLoop removes wasted prompt tokens and tool calls, then proves the optimized agent still works.
+> DWOA removes wasted prompt tokens and tool calls, then proves the optimized agent still works.
 
 ## Status
 
@@ -12,10 +12,10 @@ in the plan are not complete yet.
 
 Agent loops accumulate repeated instructions, oversized context, duplicate reads, and unnecessary
 tool calls. Existing model routers can choose a cheaper model, but they do not optimize the whole
-loop. OptiLoop compiles prompts and tool plans, evaluates the candidate against the original
+loop. DWOA compiles prompts and tool plans, evaluates the candidate against the original
 behavior, and ships only a passing optimization.
 
-## What OptiLoop optimizes
+## What DWOA optimizes
 
 - **Prompts:** deduplicate instructions and context, remove irrelevant history, and preserve safety,
   policy, task, and output-format requirements.

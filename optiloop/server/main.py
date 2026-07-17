@@ -1,9 +1,12 @@
-"""OptiLoop demo API: parallel local iterations with optional Nexla/Akash integrations."""
+"""DWOA leader and sandbox worker API with Nexla/Akash integrations."""
 
 import json
+import hashlib
 import os
+import sqlite3
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -13,12 +16,13 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 
 ROOT = Path(__file__).resolve().parent
 FIXTURES = ROOT.parent / "fixtures"
+DATABASE = ROOT / "optiloop.db"
 NEXLA_API_URL = "https://dev-api-express-code.nexla.com"
 AKASH_API_URL = "https://console-api.akash.network"
 AKASHML_API_URL = "https://api.akashml.com/v1"
@@ -29,6 +33,8 @@ VARIANTS = (
     ("tool-first", False, True),
     ("balanced", True, True),
 )
+CLARIFICATION_INPUT_TOKENS = 40
+CLARIFICATION_LATENCY_MS = 1500
 
 
 def load_env():
@@ -50,13 +56,25 @@ def secret(*names):
     return next((os.environ.get(name) for name in names if os.environ.get(name)), None)
 
 
+def worker_token():
+    configured = secret("SANDBOX_TOKEN")
+    if configured:
+        return configured
+    seed = secret("NEXLA_SERVICE_KEY", "NEXLA")
+    return hashlib.sha256(seed.encode()).hexdigest() if seed else None
+
+
+def sandbox_urls():
+    return [url.strip().rstrip("/") for url in os.environ.get("SANDBOX_URLS", "").split(",") if url.strip()]
+
+
 def request_json(url, method="GET", headers=None, body=None, timeout=8):
     data = json.dumps(body).encode() if body is not None else None
     request = Request(
         url,
         data=data,
         method=method,
-        headers={"Accept": "application/json", "User-Agent": "OptiLoop/1.0", **(headers or {})},
+        headers={"Accept": "application/json", "User-Agent": "DWOA/1.0", **(headers or {})},
     )
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode() or "{}")
@@ -67,13 +85,64 @@ def fixture(name):
         return json.load(handle)
 
 
+def init_database():
+    with sqlite3.connect(DATABASE) as connection:
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                winner_id TEXT,
+                payload TEXT NOT NULL
+            )"""
+        )
+
+
+def save_session(session):
+    with sqlite3.connect(DATABASE) as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session["id"], session["workflow_id"], session["started_at"], session["completed_at"],
+             session["status"], session.get("winner_id"), json.dumps(session)),
+        )
+
+
+def session_summaries():
+    with sqlite3.connect(DATABASE) as connection:
+        rows = connection.execute(
+            "SELECT id, workflow_id, started_at, completed_at, status, winner_id, payload "
+            "FROM sessions ORDER BY completed_at DESC LIMIT 100"
+        ).fetchall()
+    return [{
+        "id": row[0], "workflow_id": row[1], "started_at": row[2], "completed_at": row[3],
+        "status": row[4], "winner_id": row[5],
+        "iteration_count": len(json.loads(row[6]).get("iterations", [])),
+    } for row in rows]
+
+
+def load_session(session_id):
+    with sqlite3.connect(DATABASE) as connection:
+        row = connection.execute("SELECT payload FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+init_database()
+
+
 def token_count(text):
     return max(1, round(len(text.split()) * 1.3))
 
 
-def optimize_prompt(prompt, enabled):
+def missing_context(prompt, required_context):
+    lowered = prompt.lower()
+    return {key: str(value) for key, value in required_context.items() if str(value).lower() not in lowered}
+
+
+def optimize_prompt(prompt, enabled, required_context=None):
     if not enabled:
-        return prompt, []
+        return prompt, [], {}
     seen, kept, removed = set(), [], []
     for line in (line.strip() for line in prompt.splitlines()):
         if not line or line in seen or line.startswith("Optional context:"):
@@ -82,7 +151,12 @@ def optimize_prompt(prompt, enabled):
             continue
         seen.add(line)
         kept.append(line)
-    return "\n".join(kept), removed
+    optimized = "\n".join(kept)
+    added = missing_context(optimized, required_context or {})
+    if added:
+        facts = "; ".join(f"{key.replace('_', ' ')}={value}" for key, value in added.items())
+        optimized += f"\nKnown context: {facts}."
+    return optimized, removed, added
 
 
 def optimize_tools(tools, enabled):
@@ -111,16 +185,24 @@ def compile_loop(agent_loop, variant="balanced", prompt_enabled=True, tools_enab
     for step in agent_loop["steps"]:
         prompt = step.get("prompt", step["id"])
         tools = step.get("tools", [])
+        required_context = step.get("required_context", {})
+        missing_before = missing_context(prompt, required_context)
         baseline_tokens = token_count(prompt)
+        baseline_clarifications = 1 if missing_before else 0
+        baseline_input_tokens = baseline_tokens + baseline_clarifications * CLARIFICATION_INPUT_TOKENS
         baseline_steps.append({
             "id": step["id"], "model": step["model"], "provider": pricing["models"][step["model"]]["provider"],
-            "prompt": prompt, "prompt_tokens": baseline_tokens, "tool_calls": len(tools),
-            "tools": tools, "cost": step_cost(baseline_tokens, step["model"], pricing),
+            "prompt": prompt, "prompt_tokens": baseline_tokens, "input_tokens": baseline_input_tokens,
+            "clarification_turns": baseline_clarifications, "expected_turns": 1 + baseline_clarifications,
+            "tool_calls": len(tools), "tools": tools,
+            "cost": step_cost(baseline_input_tokens, step["model"], pricing),
         })
 
-        optimized_prompt, removed = optimize_prompt(prompt, prompt_enabled)
+        optimized_prompt, removed, added = optimize_prompt(prompt, prompt_enabled, required_context)
         optimized_tools, merged = optimize_tools(tools, tools_enabled)
         optimized_tokens = token_count(optimized_prompt)
+        optimized_clarifications = 1 if missing_context(optimized_prompt, required_context) else 0
+        optimized_input_tokens = optimized_tokens + optimized_clarifications * CLARIFICATION_INPUT_TOKENS
         model = step["model"]
         if step.get("touches_pii") and policy.get("rules"):
             policy_blocks.append({"step": step["id"], "reason": policy["rules"][0]["reason"], "kept_model": model})
@@ -129,20 +211,32 @@ def compile_loop(agent_loop, variant="balanced", prompt_enabled=True, tools_enab
 
         if removed:
             prompt_changes.append({"type": "dedupe_context", "step": step["id"], "removed": removed, "summary": f"Removed {len(removed)} repeated/optional prompt lines"})
+        if added:
+            prompt_changes.append({
+                "type": "context_completion", "step": step["id"], "added": added,
+                "summary": f"Added missing {', '.join(key.replace('_', ' ') for key in added)} to avoid a clarification turn",
+            })
         tool_changes.extend({**change, "step": step["id"]} for change in merged)
         optimized_steps.append({
             "id": step["id"], "model": model, "provider": pricing["models"][model]["provider"],
-            "prompt": optimized_prompt, "prompt_tokens": optimized_tokens, "tool_calls": len(optimized_tools),
-            "tools": optimized_tools, "cost": step_cost(optimized_tokens, model, pricing), "downgraded": model != step["model"],
+            "prompt": optimized_prompt, "prompt_tokens": optimized_tokens, "input_tokens": optimized_input_tokens,
+            "clarification_turns": optimized_clarifications, "expected_turns": 1 + optimized_clarifications,
+            "tool_calls": len(optimized_tools), "tools": optimized_tools,
+            "cost": step_cost(optimized_input_tokens, model, pricing), "downgraded": model != step["model"],
         })
 
     def summary(steps):
         calls = sum(step["tool_calls"] for step in steps)
+        input_tokens = sum(step["input_tokens"] for step in steps)
+        clarifications = sum(step["clarification_turns"] for step in steps)
         return {
             "cost_usd": round(sum(step["cost"] for step in steps), 6),
-            "tokens": sum(step["prompt_tokens"] for step in steps),
+            "tokens": input_tokens,
+            "output_tokens": round(input_tokens * 0.3),
             "tool_calls": calls,
-            "estimated_latency_ms": sum(step["prompt_tokens"] for step in steps) * 2 + calls * 120,
+            "expected_turns": sum(step["expected_turns"] for step in steps),
+            "clarification_turns": clarifications,
+            "estimated_latency_ms": input_tokens * 2 + calls * 120 + clarifications * CLARIFICATION_LATENCY_MS,
             "steps": steps,
         }
 
@@ -150,7 +244,12 @@ def compile_loop(agent_loop, variant="balanced", prompt_enabled=True, tools_enab
     savings = round((1 - after["cost_usd"] / before["cost_usd"]) * 100) if before["cost_usd"] else 0
     return {
         "variant": variant, "baseline": before, "optimized": after, "savings_pct": savings,
-        "prompt_optimization": {"tokens_saved": before["tokens"] - after["tokens"], "changes": prompt_changes},
+        "prompt_optimization": {
+            "tokens_saved": before["tokens"] - after["tokens"],
+            "turns_saved": before["expected_turns"] - after["expected_turns"],
+            "context_added": sum(change["type"] == "context_completion" for change in prompt_changes),
+            "changes": prompt_changes,
+        },
         "tool_optimization": {"calls_saved": before["tool_calls"] - after["tool_calls"], "changes": tool_changes},
         "policy_blocks": policy_blocks,
     }
@@ -174,8 +273,13 @@ def run_evals(variant="balanced", fail_ids=()):
 loop = fixture("loop.json")
 traces = cycle(fixture("traces.json")["traces"])
 recent_traces, history, iterations = [], [], []
+live_events = []
+sessions = session_summaries()
 fail_case = None
 lock = threading.Lock()  # ponytail: one process, one shared state, one lock.
+events_lock = threading.Lock()
+worker_jobs = {}
+worker_jobs_lock = threading.Lock()
 integration_state = {
     "nexla": {"configured": bool(secret("NEXLA_TOKEN", "NEXLA_SESSION_TOKEN", "NEXLA_SERVICE_KEY", "NEXLA")), "connected": False},
     "akash": {"configured": bool(secret("AKASH_API_KEY", "AKASH_CONSOLE_API_KEY", "AKASH")), "connected": False},
@@ -184,7 +288,7 @@ integration_state = {
 nexla_access_token = None
 state_data = {"running": False, "current_config": "baseline", "last_event": None, "compile": None,
               "evals": None, "traces": recent_traces, "history": history, "iterations": iterations,
-              "integrations": integration_state}
+              "live_events": live_events, "sessions": sessions, "integrations": integration_state}
 
 
 def safe_call(name, fn):
@@ -253,25 +357,131 @@ def publish_nexla(iteration):
     telemetry = {key: iteration[key] for key in ("id", "batch_id", "sequence", "ts", "variant", "quality_score", "gate", "decision", "executor", "metrics")}
     telemetry["changes"] = [{"type": item["type"], "step": item.get("step"), "summary": item["summary"]} for item in iteration["changes"]]
     safe_call("nexla", lambda: request_json(url, method="POST",
-                                             headers={**({"Authorization": f"Bearer {nexla_token()}"} if integration_state["nexla"]["configured"] else {}),
-                                                      "Content-Type": "application/json"},
+                                             headers={"Content-Type": "application/json"},
                                              body={"source": "optiloop", "iteration": telemetry}, timeout=4))
 
 
-def execute_variant(spec, batch_id):
+def publish_batch_nexla(batch):
+    for iteration in batch:
+        publish_nexla(iteration)
+
+
+def publish_nexla_event(event):
+    url = os.environ.get("NEXLA_WEBHOOK_URL")
+    if not url:
+        return
+    safe_call("nexla", lambda: request_json(
+        url,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        body={"source": "optiloop", "event": event},
+        timeout=4,
+    ))
+
+
+def compute_variant(spec, injected_fail=None, emit=None):
     name, prompt_enabled, tools_enabled = spec
+    emit = emit or (lambda *_args, **_kwargs: None)
+    emit("running", {"message": "Sandbox worker started"})
+    emit("prompt_optimization_started", {"message": "Analyzing prompt context"})
     compiled = compile_loop(loop, name, prompt_enabled, tools_enabled)
-    evaluated = run_evals(name, [fail_case] if fail_case else [])
+    emit("prompt_optimized", {
+        "tokens_saved": compiled["prompt_optimization"]["tokens_saved"],
+        "turns_saved": compiled["prompt_optimization"]["turns_saved"],
+        "context_added": compiled["prompt_optimization"]["context_added"],
+        "changes": len(compiled["prompt_optimization"]["changes"]),
+    })
+    emit("tools_optimized", {
+        "calls_saved": compiled["tool_optimization"]["calls_saved"],
+        "changes": len(compiled["tool_optimization"]["changes"]),
+    })
+    emit("eval_started", {"cases": len(fixture("evals.json")["cases"])})
+    evaluated = run_evals(name, [injected_fail] if injected_fail else [])
+    emit("eval_completed", {
+        "quality_score": evaluated["quality_score"],
+        "gate": evaluated["gate"],
+        "passed": evaluated["passed"],
+        "total": evaluated["total"],
+    })
     after = compiled["optimized"]
     changes = compiled["prompt_optimization"]["changes"] + compiled["tool_optimization"]["changes"]
-    return {
-        "id": f"iter-{len(iterations) + VARIANTS.index(spec) + 1:04d}", "batch_id": batch_id,
-        "sequence": len(iterations) + VARIANTS.index(spec) + 1, "ts": datetime.now(timezone.utc).isoformat(),
+    result = {
         "variant": name, "quality_score": evaluated["quality_score"], "gate": evaluated["gate"],
-        "decision": "candidate", "executor": "local-thread",
-        "metrics": {"prompt_tokens": after["tokens"], "tool_calls": after["tool_calls"],
-                    "estimated_latency_ms": after["estimated_latency_ms"], "cost_usd": after["cost_usd"]},
+        "decision": "candidate", "executor": "sandbox",
+        "metrics": {
+            "prompt_tokens": after["tokens"], "input_tokens": after["tokens"],
+            "output_tokens": after["output_tokens"], "expected_turns": after["expected_turns"],
+            "tool_calls": after["tool_calls"], "estimated_latency_ms": after["estimated_latency_ms"],
+            "cost_usd": after["cost_usd"],
+        },
         "changes": changes, "compile": compiled, "evals": evaluated,
+    }
+    emit("completed", {"quality_score": evaluated["quality_score"], "gate": evaluated["gate"]})
+    return result
+
+
+def add_worker_event(job_id, phase, details=None):
+    event = {"sequence": len(worker_jobs[job_id]["events"]) + 1, "ts": datetime.now(timezone.utc).isoformat(),
+             "phase": phase, "details": details or {}}
+    worker_jobs[job_id]["events"].append(event)
+
+
+def run_worker_job(job_id, spec, injected_fail):
+    try:
+        worker_jobs[job_id]["status"] = "running"
+        result = compute_variant(spec, injected_fail, lambda phase, details=None: add_worker_event(job_id, phase, details))
+        worker_jobs[job_id].update({"status": "completed", "result": result})
+    except Exception as error:  # Worker returns the failure; the leader never silently retries locally.
+        add_worker_event(job_id, "failed", {"message": str(error)[:160]})
+        worker_jobs[job_id].update({"status": "failed", "error": str(error)[:160]})
+
+
+def record_live_event(batch_id, variant, executor, event):
+    visible = {**event, "batch_id": batch_id, "variant": variant, "executor": executor}
+    with events_lock:
+        live_events.append(visible)
+        del live_events[:-200]
+    threading.Thread(target=publish_nexla_event, args=(visible,), daemon=True).start()
+
+
+def execute_variant(task):
+    spec, batch_id, sequence, url = task
+    token = worker_token()
+    if not token:
+        raise RuntimeError("SANDBOX_TOKEN or NEXLA service key is required")
+    created = request_json(
+        f"{url}/worker/jobs",
+        method="POST",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        body={"variant": spec[0], "fail_case": fail_case},
+        timeout=10,
+    )
+    job_id, seen_events = created["job_id"], 0
+    result = None
+    for _ in range(120):
+        job = request_json(
+            f"{url}/worker/jobs/{job_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        for event in job.get("events", [])[seen_events:]:
+            record_live_event(batch_id, spec[0], url, event)
+        seen_events = len(job.get("events", []))
+        if job["status"] == "completed":
+            result = job["result"]
+            break
+        if job["status"] == "failed":
+            raise RuntimeError(job.get("error", "Sandbox job failed"))
+        time.sleep(0.5)
+    if result is None:
+        raise TimeoutError(f"Sandbox job {job_id} timed out")
+    return {
+        **result,
+        "id": f"iter-{sequence:04d}",
+        "batch_id": batch_id,
+        "sequence": sequence,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "executor": url,
     }
 
 
@@ -279,11 +489,19 @@ def tick(force=False):
     global fail_case
     with lock:
         trace = {**next(traces), "via": "nexla" if integration_state["nexla"]["connected"] else "fixture"}
+        session_id = f"session-{uuid.uuid4().hex[:12]}"
+        started_at = datetime.now(timezone.utc).isoformat()
         recent_traces.append(trace)
         del recent_traces[:-12]
         batch_id = f"batch-{int(time.time() * 1000)}"
+        urls = sandbox_urls()
+        if not urls:
+            raise RuntimeError("No sandbox configured; set SANDBOX_URLS")
+        start_sequence = len(iterations) + 1
+        tasks = [(spec, batch_id, start_sequence + index, urls[index % len(urls)])
+                 for index, spec in enumerate(VARIANTS)]
         with ThreadPoolExecutor(max_workers=len(VARIANTS)) as pool:
-            batch = list(pool.map(lambda spec: execute_variant(spec, batch_id), VARIANTS))
+            batch = list(pool.map(execute_variant, tasks))
 
         passing = [item for item in batch if item["gate"] == "green"]
         winner = min(passing, key=lambda item: (item["metrics"]["cost_usd"], -item["quality_score"])) if passing else batch[0]
@@ -295,10 +513,25 @@ def tick(force=False):
                  "score": winner["quality_score"], "gate": winner["gate"], "batch_id": batch_id}
         history.append(event)
         del history[:-20]
+        session = {
+            "id": session_id,
+            "workflow_id": loop["name"],
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "status": "completed" if passing else "reverted",
+            "winner_id": winner["id"],
+            "baseline": winner["compile"]["baseline"],
+            "final": winner["compile"]["optimized"] if passing else winner["compile"]["baseline"],
+            "iterations": batch,
+            "events": [item for item in live_events if item["batch_id"] == batch_id],
+            "winner": winner,
+        }
+        save_session(session)
+        sessions[:] = session_summaries()
         state_data.update({"last_event": event, "compile": winner["compile"], "evals": winner["evals"],
                            "traces": recent_traces[-6:], "history": history, "iterations": iterations,
-                           "integrations": integration_state})
-        threading.Thread(target=publish_nexla, args=(winner,), daemon=True).start()
+                           "live_events": live_events, "sessions": sessions, "integrations": integration_state})
+        threading.Thread(target=publish_batch_nexla, args=(batch,), daemon=True).start()
         return state()
 
 
@@ -314,7 +547,10 @@ def start_controller():
 
     def run():
         while state_data["running"]:
-            tick()
+            try:
+                tick()
+            except (HTTPError, URLError, TimeoutError, RuntimeError, OSError) as error:
+                state_data["last_event"] = {"action": "sandbox_error", "detail": str(error)[:160]}
             time.sleep(5)
 
     threading.Thread(target=run, daemon=True).start()
@@ -322,17 +558,62 @@ def start_controller():
 
 @asynccontextmanager
 async def lifespan(_app):
-    start_controller()
+    if os.environ.get("WORKER_MODE", "").lower() != "true":
+        start_controller()
     yield
 
 
-app = FastAPI(title="OptiLoop", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="DWOA — Dynamic Workflow Optimization Agent", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "integrations": integration_state}
+    return {"ok": True, "mode": "worker" if os.environ.get("WORKER_MODE", "").lower() == "true" else "leader",
+            "integrations": integration_state}
+
+
+@app.post("/worker/run")
+def worker_run(body: dict = Body(default={}), authorization: Optional[str] = Header(default=None)):
+    expected = worker_token()
+    if not expected or authorization != f"Bearer {expected}":
+        raise HTTPException(401, "Invalid sandbox token")
+    spec = next((item for item in VARIANTS if item[0] == body.get("variant")), None)
+    if not spec:
+        raise HTTPException(400, "Unknown variant")
+    return compute_variant(spec, body.get("fail_case"))
+
+
+@app.post("/worker/jobs")
+def create_worker_job(body: dict = Body(default={}), authorization: Optional[str] = Header(default=None)):
+    expected = worker_token()
+    if not expected or authorization != f"Bearer {expected}":
+        raise HTTPException(401, "Invalid sandbox token")
+    spec = next((item for item in VARIANTS if item[0] == body.get("variant")), None)
+    if not spec:
+        raise HTTPException(400, "Unknown variant")
+    job_id = uuid.uuid4().hex
+    with worker_jobs_lock:
+        worker_jobs[job_id] = {"job_id": job_id, "status": "queued", "events": [], "result": None}
+        add_worker_event(job_id, "queued", {"message": "Iteration accepted by sandbox"})
+    threading.Thread(target=run_worker_job, args=(job_id, spec, body.get("fail_case")), daemon=True).start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/worker/jobs/{job_id}")
+def get_worker_job(job_id: str, authorization: Optional[str] = Header(default=None)):
+    expected = worker_token()
+    if not expected or authorization != f"Bearer {expected}":
+        raise HTTPException(401, "Invalid sandbox token")
+    job = worker_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Sandbox job not found")
+    return job
 
 
 @app.get("/state")
@@ -351,6 +632,19 @@ def get_iteration(iteration_id: str):
     if not found:
         raise HTTPException(404, "Iteration not found")
     return found
+
+
+@app.get("/sessions")
+def get_sessions():
+    return session_summaries()
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return session
 
 
 @app.post("/force-compile")
@@ -426,6 +720,8 @@ def launch_akash(body: dict = Body(default={})):
 if __name__ == "__main__":
     compiled = compile_loop(loop)
     assert compiled["optimized"]["tokens"] <= compiled["baseline"]["tokens"]
+    assert compiled["optimized"]["expected_turns"] < compiled["baseline"]["expected_turns"]
+    assert any(change["type"] == "context_completion" for change in compiled["prompt_optimization"]["changes"])
     assert compiled["optimized"]["tool_calls"] <= compiled["baseline"]["tool_calls"]
     assert run_evals()["gate"] == "green"
     print("ok")

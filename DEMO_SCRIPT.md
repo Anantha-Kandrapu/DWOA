@@ -1,4 +1,4 @@
-# OptiLoop — 3-Minute Demo Script
+# DWOA — 3-Minute Demo Script
 
 **Target duration:** 2:45  
 **Status:** use only after CP7 records a verified baseline and optimized run.
@@ -8,7 +8,7 @@
 **Show:** the baseline agent trace.
 
 > Agent loops waste money beyond model choice. They repeat instructions, carry irrelevant context,
-> and call the same tools more than once. OptiLoop optimizes prompts and tool plans, then proves the
+> and call the same tools more than once. DWOA optimizes prompts and tool plans, then proves the
 > new loop still works.
 
 ## 0:20–0:50 — Baseline
@@ -22,7 +22,7 @@
 
 **Show:** click **Force Compile**, then open the optimization audit.
 
-> OptiLoop removes duplicated prompt content, keeps required constraints, merges identical
+> DWOA removes duplicated prompt content, keeps required constraints, merges identical
 > read-only calls, and reuses results only while their dependencies remain unchanged. It never
 > removes or merges side-effecting calls. Model routing and policy checks run afterward as supporting
 > infrastructure.
@@ -32,14 +32,14 @@
 **Show:** the baseline and candidate running against the same eval cases.
 
 > Savings do not ship on their own. The candidate must preserve the expected output and side
-> effects. These evals pass, so OptiLoop ships it. Now I inject a regression: the gate turns red and
+> effects. These evals pass, so DWOA ships it. Now I inject a regression: the gate turns red and
 > the controller keeps the known-good baseline.
 
 ## 2:15–2:45 — Result
 
 **Show:** the live score timeline, click the latest dot, then replay one older iteration.
 
-> OptiLoop is a correctness-preserving compiler for agent loops. It reduces prompt tokens and tool
+> DWOA is a correctness-preserving compiler for agent loops. It reduces prompt tokens and tool
 > calls, protects side effects, and ships only verified optimizations. Every iteration is inspectable
 > and replayable without rerunning its side effects.
 

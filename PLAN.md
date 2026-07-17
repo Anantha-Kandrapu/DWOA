@@ -1,10 +1,10 @@
-# OptiLoop — Build Plan
+# DWOA — Build Plan
 
 **A correctness-preserving compiler for agent loops.** Ingests an agent loop, optimizes its prompts
 and tool usage, and refuses to ship any version that fails your evals. Model routing is supporting
 infrastructure, not the product.
 
-> "OptiLoop removes wasted prompt tokens and tool calls, then proves the optimized agent still works."
+> "DWOA removes wasted prompt tokens and tool calls, then proves the optimized agent still works."
 
 ## Locked decisions
 
@@ -20,7 +20,7 @@ infrastructure, not the product.
 
 ## Prize tracks we're targeting (cash lives in tracks, general 1st = badge only)
 
-- **Zero.xyz — $2,500 (biggest).** Go deep: OptiLoop analyzes, removes, merges, and selects tool
+- **Zero.xyz — $2,500 (biggest).** Go deep: DWOA analyzes, removes, merges, and selects tool
   calls, then executes the retained calls through Zero's no-key layer.
 - **Pomerium — $1,000 (Most Innovative).** Policy enforcement constrains optimization, but is not
   the core product.
@@ -38,7 +38,7 @@ infrastructure, not the product.
 
 ## Autonomy loop (self-directing — the theme + the Autonomy 20%)
 
-OptiLoop runs itself: **observe → detect → compile → eval → ship/revert**, no human in the loop.
+DWOA runs itself: **observe → detect → compile → eval → ship/revert**, no human in the loop.
 
 1. **Observe** — consume an agent trace containing prompts, tool calls, latency, and cost.
 2. **Detect** — find duplicated context, redundant read-only calls, or an expensive loop.
@@ -53,12 +53,23 @@ a dramatic compile on stage. So it scores Autonomy *and* gives you a controllabl
 Each controller tick creates an immutable iteration snapshot. The dashboard plots quality score over
 time, explains every dot, and can replay any previous snapshot without rerunning it.
 
+Full visibility is required before the final dot appears. Each sandbox job exposes an ordered event
+stream: queued → running → prompt optimized → tools optimized → eval started → eval completed →
+completed/failed. The local leader polls these events, forwards sanitized copies to Nexla, and makes
+them visible in the Live tab. No phase may happen only inside an opaque worker log.
+
+When a workflow optimization session ends, the local leader stores a durable history record with
+the baseline, every candidate iteration, every lifecycle event, prompt/tool audits, eval results,
+winner, rollback/ship decision, and final workflow configuration. The History tab can reopen any
+completed session after a leader restart.
+
 ## Scope
 
 - **Core (must demo):** prompt optimization + tool optimization + eval gate + a live iteration
   timeline showing quality score, tokens, tool calls, latency, and cost.
-- **Prompt optimization:** remove duplicated instructions and context, strip irrelevant history, and
-  shorten prompts while preserving required constraints.
+- **Prompt optimization:** remove duplicated or irrelevant context, but add concise known facts when
+  they avoid clarification turns. Optimize total workflow tokens, turns, latency, and cost—not raw
+  prompt length—while preserving required constraints.
 - **Tool optimization:** remove unused calls, merge duplicate reads/searches, reuse safe results, and
   choose a cheaper equivalent tool where one exists.
 - **Supporting only:** model routing and governance policy.
@@ -66,13 +77,15 @@ time, explains every dot, and can replay any previous snapshot without rerunning
 
 ## Parallel execution and integrations
 
-### Now: fast local iterations
+### Leader and sandbox boundary
 
-- Generate four prompt/tool variants per batch: conservative, prompt-first, tool-first, and balanced.
-- Run candidates concurrently with a bounded local thread pool.
+- The leader/controller runs locally and never executes optimization candidates or evals.
+- Generate four variants per batch: conservative, prompt-first, tool-first, and balanced.
+- Dispatch every variant concurrently to authenticated sandbox workers.
+- Use local Docker workers during development and Akash workers for deployed runs.
 - Evaluate each candidate independently and append it to the live score graph as soon as the batch completes.
 - Keep tool side effects simulated during optimization; Replay never executes them.
-- Use local execution for the default autonomous loop so background ticks cannot spend cloud credits.
+- Refuse the batch when no sandbox is available; never fall back to leader-side execution.
 
 ### Nexla: live monitoring
 
@@ -90,10 +103,11 @@ time, explains every dot, and can replay any previous snapshot without rerunning
 - Do not call AkashML on autonomous background ticks until per-run budget and rate limits exist.
 - Trigger paid inference only through an explicit user action or a bounded experiment batch.
 
-### Akash: later sandbox backend
+### Akash: sandbox backend
 
-- Keep local parallel execution as the fast default.
-- Add Akash Console API as the remote sandbox backend for larger batches.
+- Package the worker as a pinned Docker image and deploy it through the Akash Console API.
+- Keep the leader local; only worker containers run optimization and eval code.
+- Scale workers with the Akash SDL service count or multiple worker URLs.
 - Creating a deployment requires an explicit confirmation because it spends credits.
 - Launch flow: create deployment → poll bids → accept a lease → run the batch → close the deployment.
 
@@ -114,16 +128,16 @@ must continue excluding every real `.env` file.
 
 ## Positioning (the wedge)
 
-Model routing is already widely available. OptiLoop optimizes the parts routers do not:
+Model routing is already widely available. DWOA optimizes the parts routers do not:
 
-> "OptiLoop compiles an entire agent loop — prompts, context, and tools — then proves it didn't regress."
+> "DWOA compiles an entire agent loop — prompts, context, and tools — then proves it didn't regress."
 
 The moat = **eval-backed prompt rewriting** + **tool-plan optimization** + **runtime-agnostic input**.
 Routing, provider choice, and policy enforcement support that compiler.
 
 ## Sponsor hooks — go deep on 4, don't bolt on 6
 
-- **Zero.xyz = optimized tool execution layer.** OptiLoop compares the original and optimized tool
+- **Zero.xyz = optimized tool execution layer.** DWOA compares the original and optimized tool
   plans; retained calls execute through Zero. The demo must show fewer calls, not merely a Zero label.
 - **Akash = optional cheap model target.** Useful after prompt and tool optimization, but not the
   product claim.

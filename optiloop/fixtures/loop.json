@@ -4,15 +4,19 @@
     {
       "id": "plan",
       "role": "planner",
-      "model": "gpt-4o",
+      "model": "zai-org/GLM-5.2",
       "touches_pii": false,
       "prompt": "Follow repository instructions.\nFix the reported parser bug.\nFollow repository instructions.\nOptional context: explore unrelated refactors.",
+      "required_context": {
+        "target_file": "parser.py",
+        "success_criteria": "focused parser tests pass"
+      },
       "tools": []
     },
     {
       "id": "read",
       "role": "observer",
-      "model": "gpt-4o",
+      "model": "zai-org/GLM-5.2",
       "touches_pii": true,
       "prompt": "Read only the files needed for the parser bug.\nPreserve user changes.\nRead only the files needed for the parser bug.",
       "tools": [
@@ -23,7 +27,7 @@
     {
       "id": "edit",
       "role": "actor",
-      "model": "gpt-4o",
+      "model": "zai-org/GLM-5.2",
       "touches_pii": false,
       "prompt": "Make the smallest correct edit.\nDo not modify unrelated files.\nMake the smallest correct edit.",
       "tools": [
@@ -33,7 +37,7 @@
     {
       "id": "verify",
       "role": "critic",
-      "model": "gpt-4o",
+      "model": "zai-org/GLM-5.2",
       "touches_pii": false,
       "prompt": "Run the focused regression check.\nReport the result clearly.\nRun the focused regression check.",
       "tools": [

@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react"
 
-const API = "http://localhost:8000"
+const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 
 type Tool = { id: string; name: string; side_effect?: boolean }
 type Step = { id: string; model: string; cost: number; prompt?: string; prompt_tokens: number; tool_calls: number; tools?: Tool[]; provider?: string }
 type Compile = {
   variant: string
-  baseline: { cost_usd: number; tokens: number; tool_calls: number; estimated_latency_ms: number; steps: Step[] }
-  optimized: { cost_usd: number; tokens: number; tool_calls: number; estimated_latency_ms: number; steps: Step[] }
+  baseline: { cost_usd: number; tokens: number; output_tokens: number; expected_turns: number; clarification_turns: number; tool_calls: number; estimated_latency_ms: number; steps: Step[] }
+  optimized: { cost_usd: number; tokens: number; output_tokens: number; expected_turns: number; clarification_turns: number; tool_calls: number; estimated_latency_ms: number; steps: Step[] }
   savings_pct: number
-  prompt_optimization: { tokens_saved: number; changes: Change[] }
+  prompt_optimization: { tokens_saved: number; turns_saved: number; context_added: number; changes: Change[] }
   tool_optimization: { calls_saved: number; changes: Change[] }
 }
 type Change = { type: string; step?: string; summary: string; removed?: string[] }
@@ -18,11 +18,15 @@ type Evals = { passed: number; failed: number; total: number; quality_score: num
 type Iteration = {
   id: string; batch_id: string; sequence: number; ts: string; variant: string; quality_score: number
   gate: "green" | "red"; decision: string; executor: string
-  metrics: { prompt_tokens: number; tool_calls: number; estimated_latency_ms: number; cost_usd: number }
+  metrics: { prompt_tokens: number; input_tokens: number; output_tokens: number; expected_turns: number; tool_calls: number; estimated_latency_ms: number; cost_usd: number }
   changes: Change[]; compile: Compile; evals: Evals
 }
+type LiveEvent = { sequence: number; ts: string; phase: string; batch_id: string; variant: string; executor: string; details: Record<string, string | number> }
+type SessionSummary = { id: string; workflow_id: string; started_at: string; completed_at: string; status: string; winner_id: string; iteration_count: number }
+type Session = SessionSummary & { baseline: Compile["baseline"]; final: Compile["optimized"]; iterations: Iteration[]; events: LiveEvent[]; winner: Iteration }
 type State = {
   running: boolean; current_config: string; compile: Compile; evals: Evals; iterations: Iteration[]
+  live_events: LiveEvent[]; sessions: SessionSummary[]
   integrations: Record<string, { configured: boolean; connected: boolean; error?: string }>
 }
 
@@ -31,7 +35,7 @@ const phases = ["Observed", "Compiled", "Evaluated", "Decision"]
 
 export default function App() {
   const [state, setState] = useState<State | null>(null)
-  const [tab, setTab] = useState<"live" | "replay">("live")
+  const [tab, setTab] = useState<"live" | "replay" | "history">("live")
   const [selectedId, setSelectedId] = useState("")
   const [phase, setPhase] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -69,12 +73,12 @@ export default function App() {
   const iterations = state?.iterations ?? []
   const selected = iterations.find(item => item.id === selectedId) ?? iterations[iterations.length - 1]
 
-  if (!state?.compile || !state.evals) return <main><section className="panel loading">Waiting for OptiLoop API…</section></main>
+  if (!state?.compile || !state.evals) return <main><section className="panel loading">Waiting for DWOA API…</section></main>
 
   return (
     <main>
       <header className="topbar">
-        <strong>OptiLoop</strong>
+        <strong className="brand">DWOA <span>Dynamic Workflow Optimization Agent</span></strong>
         <span className="pill ok">{state.running ? "Live" : "Paused"}</span>
         {Object.entries(state.integrations ?? {}).map(([name, value]) => <span className={`pill ${value.connected ? "ok" : ""}`} title={value.error} key={name}>{name} {value.connected ? "connected" : value.configured ? "checking" : "off"}</span>)}
         <button onClick={() => post("/force-compile")} disabled={busy}>Run variants</button>
@@ -83,7 +87,7 @@ export default function App() {
       <section className="hero">
         <div>
           <span className={`pill ${state.evals.gate === "green" ? "ok" : "bad"}`}>{state.evals.gate === "green" ? "Verified optimization live" : "Baseline protected"}</span>
-          <h1>Prompt and tool optimization, iteration by iteration.</h1>
+          <h1>Every workflow. Continuously optimized.</h1>
           <p>Four variants run in parallel. Every score, prompt change, tool merge, and ship decision stays inspectable and replayable.</p>
         </div>
         <div className="metrics">
@@ -96,9 +100,12 @@ export default function App() {
       <nav className="tabs">
         <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>Live</button>
         <button className={tab === "replay" ? "active" : ""} onClick={() => setTab("replay")}>Replay</button>
+        <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
       </nav>
 
-      {tab === "live" ? <Live state={state} selected={selected} select={setSelectedId} post={post} /> : <Replay iterations={iterations} selected={selected} select={id => { setSelectedId(id); setPhase(0); setPlaying(false) }} phase={phase} setPhase={setPhase} playing={playing} setPlaying={setPlaying} />}
+      {tab === "live" && <Live state={state} selected={selected} select={setSelectedId} post={post} />}
+      {tab === "replay" && <Replay iterations={iterations} selected={selected} select={id => { setSelectedId(id); setPhase(0); setPlaying(false) }} phase={phase} setPhase={setPhase} playing={playing} setPlaying={setPlaying} />}
+      {tab === "history" && <History sessions={state.sessions ?? []} />}
     </main>
   )
 }
@@ -113,10 +120,16 @@ function Live({ state, selected, select, post }: { state: State; selected?: Iter
     </section>
 
     <section className="metric-grid">
-      <Compare label="Prompt tokens" before={before.tokens} after={after.tokens} />
+      <Compare label="Input tokens" before={before.tokens} after={after.tokens} />
+      <Compare label="Expected turns" before={before.expected_turns} after={after.expected_turns} />
       <Compare label="Tool calls" before={before.tool_calls} after={after.tool_calls} />
       <Compare label="Latency" before={before.estimated_latency_ms} after={after.estimated_latency_ms} suffix="ms" />
       <Compare label="Cost" before={money(before.cost_usd)} after={money(after.cost_usd)} />
+    </section>
+
+    <section className="panel event-panel">
+      <div className="panel-head"><div><small>Sandbox lifecycle</small><h2>Every iteration phase</h2></div><span className="pill">{state.live_events?.length ?? 0} events</span></div>
+      <div className="event-stream">{[...(state.live_events ?? [])].reverse().slice(0, 40).map((event, index) => <div key={`${event.batch_id}-${event.variant}-${event.sequence}-${index}`}><span className="event-time">{new Date(event.ts).toLocaleTimeString()}</span><strong>{event.variant}</strong><span className="pill">{event.phase.split("_").join(" ")}</span><span>{Object.entries(event.details ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</span></div>)}</div>
     </section>
 
     {selected && <IterationDetails iteration={selected} />}
@@ -126,6 +139,15 @@ function Live({ state, selected, select, post }: { state: State; selected?: Iter
       <div className="chips">{state.evals.cases.map(item => <span className={`pill ${item.status === "pass" ? "ok" : "bad"}`} key={item.id}>{item.id} · {item.ms}ms</span>)}</div>
     </section>
   </>
+}
+
+function History({ sessions }: { sessions: SessionSummary[] }) {
+  const [selected, setSelected] = useState<Session | null>(null)
+  const open = async (id: string) => setSelected(await fetch(`${API}/sessions/${id}`).then(response => response.json()))
+  return <section className="replay-grid">
+    <aside className="panel replay-list"><small>Workflow sessions</small>{sessions.map(session => <button className={selected?.id === session.id ? "active" : ""} key={session.id} onClick={() => open(session.id)}> {session.workflow_id}<span>{session.iteration_count} iterations · {session.status}</span><span>{new Date(session.completed_at).toLocaleString()}</span></button>)}</aside>
+    <section className="panel replay-stage">{selected ? <><div className="panel-head"><div><small>Completed optimization session</small><h2>{selected.workflow_id}</h2></div><span className={`pill ${selected.status === "completed" ? "ok" : "bad"}`}>{selected.status}</span></div><section className="metric-grid replay-metrics"><Compare label="Input tokens" before={selected.baseline.tokens} after={selected.final.tokens} /><Compare label="Expected turns" before={selected.baseline.expected_turns} after={selected.final.expected_turns} /><Compare label="Tool calls" before={selected.baseline.tool_calls} after={selected.final.tool_calls} /><Compare label="Latency" before={selected.baseline.estimated_latency_ms} after={selected.final.estimated_latency_ms} suffix="ms" /><Compare label="Cost" before={money(selected.baseline.cost_usd)} after={money(selected.final.cost_usd)} /></section><h2 className="history-heading">All candidate iterations</h2>{selected.iterations.map(iteration => <IterationDetails iteration={iteration} key={iteration.id} />)}<h2 className="history-heading">Complete event trail</h2><div className="event-stream">{selected.events.map((event, index) => <div key={`${event.variant}-${event.sequence}-${index}`}><span className="event-time">{new Date(event.ts).toLocaleTimeString()}</span><strong>{event.variant}</strong><span className="pill">{event.phase.split("_").join(" ")}</span><span>{Object.entries(event.details ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</span></div>)}</div></> : <p>Select a completed workflow session to inspect every iteration, event, eval, and final decision.</p>}</section>
+  </section>
 }
 
 function ScoreGraph({ iterations, selectedId, select }: { iterations: Iteration[]; selectedId?: string; select: (id: string) => void }) {
@@ -143,8 +165,9 @@ function ScoreGraph({ iterations, selectedId, select }: { iterations: Iteration[
 
 function IterationDetails({ iteration }: { iteration: Iteration }) {
   const tools = iteration.compile.optimized.steps.flatMap(step => (step.tools ?? []).map(tool => ({ ...tool, step: step.id })))
+  const models = [...new Set(iteration.compile.optimized.steps.map(step => `${step.model} · ${step.provider}`))]
   return <section className="grid">
-    <section className="panel"><small>Selected iteration</small><h2>#{iteration.sequence} · {iteration.variant}</h2><div className="iteration-meta"><span className={`pill ${iteration.gate === "green" ? "ok" : "bad"}`}>{iteration.quality_score}%</span><span className="pill">{iteration.executor}</span><span className="pill">{iteration.decision}</span></div><div className="change-list">{iteration.changes.length ? iteration.changes.map((change, index) => <div key={`${change.type}-${index}`}><strong>{change.step ?? "loop"}</strong><span>{change.summary}</span></div>) : <p>No prompt or tool changes.</p>}</div></section>
+    <section className="panel"><small>Selected iteration</small><h2>#{iteration.sequence} · {iteration.variant}</h2><div className="iteration-meta"><span className={`pill ${iteration.gate === "green" ? "ok" : "bad"}`}>{iteration.quality_score}%</span><span className="pill">{iteration.executor}</span><span className="pill">{iteration.decision}</span></div><div className="chips">{models.map(model => <span className="pill" key={model}>{model}</span>)}</div><div className="change-list">{iteration.changes.length ? iteration.changes.map((change, index) => <div key={`${change.type}-${index}`}><strong>{change.step ?? "loop"}</strong><span>{change.summary}</span></div>) : <p>No prompt or tool changes.</p>}</div></section>
     <section className="panel"><small>Protected tool plan</small><h2>Side effects stay intact</h2><div className="change-list">{tools.length ? tools.map(tool => <div key={`${tool.step}-${tool.id}`}><strong>{tool.name}</strong><span>{tool.step} · {tool.side_effect ? "protected side effect" : "read-only"}</span></div>) : <p>No tools in this iteration.</p>}</div></section>
   </section>
 }
@@ -159,7 +182,7 @@ function Replay({ iterations, selected, select, phase, setPhase, playing, setPla
 function ReplayPhase({ iteration, phase }: { iteration: Iteration; phase: number }) {
   const before = iteration.compile.baseline, after = iteration.compile.optimized
   if (phase === 0) return <div className="replay-card"><small>Snapshot</small><h2>#{iteration.sequence} · {iteration.variant}</h2><p>{new Date(iteration.ts).toLocaleString()} · batch {iteration.batch_id}</p></div>
-  if (phase === 1) return <div className="metric-grid replay-metrics"><Compare label="Prompt tokens" before={before.tokens} after={after.tokens} /><Compare label="Tool calls" before={before.tool_calls} after={after.tool_calls} /><Compare label="Latency" before={before.estimated_latency_ms} after={after.estimated_latency_ms} suffix="ms" /><Compare label="Cost" before={money(before.cost_usd)} after={money(after.cost_usd)} /></div>
+  if (phase === 1) return <div className="metric-grid replay-metrics"><Compare label="Input tokens" before={before.tokens} after={after.tokens} /><Compare label="Expected turns" before={before.expected_turns} after={after.expected_turns} /><Compare label="Tool calls" before={before.tool_calls} after={after.tool_calls} /><Compare label="Latency" before={before.estimated_latency_ms} after={after.estimated_latency_ms} suffix="ms" /><Compare label="Cost" before={money(before.cost_usd)} after={money(after.cost_usd)} /></div>
   if (phase === 2) return <div className="replay-card"><h2>{iteration.evals.passed}/{iteration.evals.total} evals passed</h2><div className="chips">{iteration.evals.cases.map(item => <span className={`pill ${item.status === "pass" ? "ok" : "bad"}`} key={item.id}>{item.id} · {item.ms}ms</span>)}</div></div>
   return <IterationDetails iteration={iteration} />
 }
